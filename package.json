@@ -1,0 +1,34 @@
+{
+  "name": "@whiteknight-solana/sdk",
+  "version": "0.1.0",
+  "description": "JS/TS client for the WhiteKnight program: PDAs, decoders, readers, and every public instruction, encoded from the pinned ABI at runtime.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "src/"
+  ],
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WhiteKnight-Solana/sdk.git"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@solana/kit": "7.0.0",
+    "@whiteknight-solana/abi": "github:WhiteKnight-Solana/abi#e58f8e0490feb2809a047e615be88fd23f9a17c2"
+  }
+}

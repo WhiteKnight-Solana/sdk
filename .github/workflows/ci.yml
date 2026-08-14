@@ -1,0 +1,21 @@
+# CI: install pinned deps with scripts disabled, then the full suite.
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: install (lockfile, no lifecycle scripts)
+        run: npm ci --ignore-scripts
+      - name: audit for known advisories
+        run: npm audit --audit-level=low
+      - name: test
+        run: node --test test/

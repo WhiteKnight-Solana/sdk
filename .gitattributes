@@ -1,0 +1,3 @@
+# LF everywhere: the abi-pin tests hash installed bytes, and consumers install this package
+# from a git commit — checkout must be byte-identical on every platform.
+* text=auto eol=lf
