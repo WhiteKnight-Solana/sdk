@@ -1,1 +1,6 @@
 node_modules/
+
+# Environment files carry credentials by design. Never trackable, in any checkout.
+.env
+.env.*
+!.env.example

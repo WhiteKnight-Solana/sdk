@@ -5,9 +5,18 @@ Everything a **user** or an **operator** needs to talk to the program directly: 
 account decoders, chain readers, and a builder for every public instruction, encoded from the
 pinned ABI at runtime.
 
-> **Status: pre-mainnet.** `createClient({ cluster: 'mainnet' })` throws until the ABI's
-> address book publishes the deployed program id — deliberately. Nothing here encodes against
-> a program that is not there.
+> **Status: live on mainnet since 2026-08-15.** `createClient({ cluster: 'mainnet' })`
+> resolves **`WKhLkiPw8dSMoV1n81Mxyo61Eu3rH9CKtQTnLjGv4BS`** from the pinned ABI's address
+> book. (The fail-loud rule still stands: if the ABI ever said `null` for a cluster, the
+> client would throw rather than fall back — nothing here encodes against a program that is
+> not there.)
+>
+> **Custody, stated plainly:** the program's upgrade authority is currently the single key
+> `3B8wpWfD1T9oAhyDrAWEQU3Zxpog3nmrShr2XoEVXUML` (also platform admin and fee collector).
+> It can replace the deployed code, including the withdraw path. Verify at any time with
+> `solana program show WKhLkiPw8dSMoV1n81Mxyo61Eu3rH9CKtQTnLjGv4BS --url mainnet-beta`; a
+> multisig is planned before meaningful TVL, and the on-chain authority is the truth, not
+> this README.
 
 ## Install
 
