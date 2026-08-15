@@ -155,6 +155,12 @@ export interface MinerState {
 export function decodeWkConfig(d: Uint8Array): WkConfigState;
 export function decodeManager(d: Uint8Array): ManagerState;
 export function decodeDeployer(d: Uint8Array): DeployerState;
+/**
+ * Between rounds, `startSlot` and `endSlot` BOTH read `2n ** 64n - 1n`: Sat Rush advances
+ * `roundId` about 1.5 seconds before writing the new window (measured 1.2-1.7s on mainnet).
+ * Code that reacts to `roundId` changing will therefore see the sentinel almost every round.
+ * Treat it as "not open yet" and re-read - never as a slot count, and never as corruption.
+ */
 export function decodeBoard(d: Uint8Array): {
   roundId: number; roundDuration: number; startSlot: bigint; endSlot: bigint;
   strikePendingUsd: bigint; strikeUsd: bigint; strikeBtc: bigint; strikeLastTriggerRoundId: number;
