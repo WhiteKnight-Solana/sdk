@@ -210,7 +210,7 @@ export async function readOneBtcTickets(client, wkAuths, satrushProgram = SATRUS
  */
 export async function readFlows(client, wallet, { limit = 200, usdMint } = {}) {
   const sigs = await client.rpc
-    .getSignaturesForAddress(wallet, { limit }, { commitment: 'confirmed' })
+    .getSignaturesForAddress(wallet, { limit, commitment: 'confirmed' })
     .send();
   let deposited = 0n;
   let withdrawn = 0n;
