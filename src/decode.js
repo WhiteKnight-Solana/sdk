@@ -11,7 +11,7 @@
 
 import { Reader } from './borsh.js';
 import {
-  WK_CONFIG_LEN, MANAGER_LEN, DEPLOYER_LEN, PARAM_COUNT, FLAG, SIZES,
+  WK_CONFIG_LEN, MANAGER_LEN, DEPLOYER_LEN, PARAM_COUNT, FLAG, USER_FLAG, SIZES,
   ROUND_STATE, EPOCH_STATE, ONE_BTC_STATE, TILE_COUNT,
 } from './constants.js';
 
@@ -96,7 +96,25 @@ export function decodeDeployer(d) {
     // The ratio's lifetime flow ledger: units ever spent on epoch and 1 BTC tickets.
     epochUnitsBought: r.u64(),
     btcUnitsBought: r.u64(),
+    // The switches the USER owns — see USER_FLAG. Reads 0 on every position created before
+    // they existed, which is exactly what "unset" means for both of them.
+    userFlags: r.u64(),
   };
+}
+
+/** Is this position's mining paused by its owner? */
+export function isMiningPaused(deployer) {
+  return (deployer.userFlags & USER_FLAG.PAUSE_MINING) !== 0n;
+}
+
+/**
+ * Has its owner held automatic ticket buying, so hashrate banks instead of being spent?
+ *
+ * Worth reading before building a ticket batch: the program skips these shards with
+ * `SkipCause.HoldByUser`, so including them buys a transaction that can only be refused.
+ */
+export function areVaultBuysHeld(deployer) {
+  return (deployer.userFlags & USER_FLAG.HOLD_VAULT_BUYS) !== 0n;
 }
 
 // ---------------------------------------------------------------- satrush

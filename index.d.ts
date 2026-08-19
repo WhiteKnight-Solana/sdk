@@ -36,6 +36,19 @@ export const DEPLOY_AUTHORITY_OFFSET: number;
 export const PARAM_COUNT: number;
 export const PARAM: Readonly<Record<string, number>>;
 export const FLAG: Readonly<Record<string, bigint>>;
+/**
+ * `Deployer.user_flags` bits, as bigint masks — the switches a POSITION OWNER controls.
+ * An operator can never write them.
+ *
+ *   PAUSE_MINING     stops deploys only; settles, claims, prizes and withdrawals continue.
+ *   HOLD_VAULT_BUYS  stops both ticket legs so hashrate banks on the Miner; claim_sats
+ *                    keeps running, because that is money owed to the user.
+ */
+export const USER_FLAG: Readonly<Record<string, bigint>>;
+/** Every bit the program accepts. A mask touching anything else is refused (BadSetting). */
+export const USER_FLAGS_KNOWN: bigint;
+/** Byte offset of `Deployer.user_flags`, for readers that skip the full decode. */
+export const USER_FLAGS_OFFSET: number;
 export const MAX_SHARDS_HARD_CAP: number;
 export const SIZES: Readonly<Record<string, number>>;
 export const UNITS_PER_TICKET: bigint;
@@ -147,6 +160,7 @@ export interface DeployerState {
   minStrikePotUsd: bigint; maxStrikePotUsd: bigint;
   lastRound: number; stakedInRound: bigint; roundsPlayed: number; stakeAllowance: bigint;
   bump: number; btcShareBps: number; epochUnitsBought: bigint; btcUnitsBought: bigint;
+  userFlags: bigint;
 }
 export interface MinerState {
   authority: Address; unclaimedUsd: bigint; unclaimedBtcShares: bigint; hashrate: bigint;
@@ -155,6 +169,13 @@ export interface MinerState {
 export function decodeWkConfig(d: Uint8Array): WkConfigState;
 export function decodeManager(d: Uint8Array): ManagerState;
 export function decodeDeployer(d: Uint8Array): DeployerState;
+/** Has the owner paused this position's mining? */
+export function isMiningPaused(deployer: DeployerState): boolean;
+/**
+ * Has the owner held automatic ticket buying? Worth checking before building a ticket batch:
+ * the program skips these shards, so including one buys a transaction that can only be refused.
+ */
+export function areVaultBuysHeld(deployer: DeployerState): boolean;
 /**
  * Between rounds, `startSlot` and `endSlot` BOTH read `2n ** 64n - 1n`: Sat Rush advances
  * `roundId` about 1.5 seconds before writing the new window (measured 1.2-1.7s on mainnet).
@@ -267,6 +288,16 @@ export function ixCreateManager(client: WkClient, a: {
 export function ixCreateDeployer(client: WkClient, a: {
   authority: Addr; config: Addr; manager: Addr; deployer: Addr; settings: DeployerSettings;
 }): WkInstruction;
+/**
+ * `set_user_flags(mask, value)` — move this position's own switches. See `USER_FLAG`.
+ *
+ * `mask` selects which bits the call may touch, `value` what to set them to, so two switches
+ * move independently without a read-modify-write. Signed by the position owner only.
+ */
+export function ixSetUserFlags(client: WkClient, a: {
+  authority: Address | string; manager: Address | string; deployer: Address | string;
+  mask: bigint | number; value: bigint | number;
+}): Instruction;
 export function ixUpdateDeployer(client: WkClient, a: {
   authority: Addr; config: Addr; manager: Addr; deployer: Addr; settings: DeployerSettings;
 }): WkInstruction;

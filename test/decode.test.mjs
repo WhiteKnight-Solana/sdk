@@ -11,6 +11,7 @@ import {
   Writer, decodeWkConfig, decodeManager, decodeDeployer, decodeMiner, decodeSatsVault,
   decodeEpochVaultIteration, decodeOneBtcVaultEntry,
   WK_CONFIG_LEN, MANAGER_LEN, DEPLOYER_LEN, SIZES, PARAM_COUNT, FLAG, TILE_COUNT,
+  USER_FLAG, USER_FLAGS_KNOWN, USER_FLAGS_OFFSET, isMiningPaused, areVaultBuysHeld,
   SATRUSH_PROGRAM, USDC_MINT, CBBTC_MINT, TOKEN_PROGRAM, ATA_PROGRAM, SYSTEM_PROGRAM,
 } from '../index.js';
 
@@ -77,7 +78,7 @@ test('Manager round-trips and pins the reserve width', () => {
   assert.throws(() => decodeManager(new Uint8Array(MANAGER_LEN + 1)), /expected 331/);
 });
 
-test('Deployer round-trips every field including the three reserve carves', () => {
+test('Deployer round-trips every field including the four reserve carves', () => {
   const w = new Writer().raw(new Uint8Array(8))
     .pubkey(PK[0]).pubkey(PK[1])          // manager, deployAuthority
     .u64(200).u64(0).u16(3)               // bpsFee, flatFee, shardCount
@@ -87,8 +88,8 @@ test('Deployer round-trips every field including the three reserve carves', () =
     .u64(0).u64(0)                        // strike range
     .u32(10_935).u64(1_425_000).u32(88).u64(9_000_000) // lastRound, stakedInRound, roundsPlayed, stakeAllowance
     .u8(255)                              // bump
-    .u16(5_000).u64(123_456).u64(78_900)  // btcShareBps + flow ledger carves
-    .raw(new Uint8Array(238));            // launch reserve (256 − 18 carved)
+    .u16(5_000).u64(123_456).u64(78_900).u64(0) // btcShareBps, flow ledger, user_flags
+    .raw(new Uint8Array(230));            // launch reserve (256 − 26 carved)
   const bytes = w.finish();
   assert.equal(bytes.length, DEPLOYER_LEN);
 
@@ -151,4 +152,77 @@ test('OneBtcVaultEntry has no bump — the 8-byte header is the whole prefix', (
   assert.equal(e.iterationId, 2);
   assert.equal(e.startTicketId, 1_000n);
   assert.equal(e.ticketsCount, 50n);
+});
+
+// =====================================================================================
+// user_flags — the fourth carve, and the two switches read off it.
+// =====================================================================================
+
+/** A Deployer whose carved fields carry sentinels, so a misread offset cannot look right. */
+function deployerBytes({ btcShareBps = 5_000, epoch = 123_456n, btc = 78_900n, userFlags = 0n } = {}) {
+  return new Writer().raw(new Uint8Array(8))
+    .pubkey(PK[0]).pubkey(PK[1])
+    .u64(200).u64(0).u16(3)
+    .u64(200).u64(1).u8(3)
+    .u64(1_500_000).u8(21).u32(0).u8(0)
+    .u64(0).u64(1_000_000).u64(0).bool(true)
+    .u64(0).u64(0)
+    .u32(10_935).u64(1_425_000).u32(88).u64(9_000_000)
+    .u8(255)
+    .u16(btcShareBps).u64(epoch).u64(btc).u64(userFlags)
+    .raw(new Uint8Array(230))
+    .finish();
+}
+
+test('user_flags decodes at the published offset, ahead of what is left of the reserve', () => {
+  const bytes = deployerBytes({ userFlags: 0x0123_4567_89ab_cdefn });
+  assert.equal(bytes.length, DEPLOYER_LEN, 'the carve must not move the account length');
+
+  const d = decodeDeployer(bytes);
+  assert.equal(d.userFlags, 0x0123_4567_89ab_cdefn);
+  // The neighbours either side must be untouched — a one-field slip would still decode.
+  assert.equal(d.btcUnitsBought, 78_900n);
+  assert.equal(d.epochUnitsBought, 123_456n);
+  assert.equal(d.btcShareBps, 5_000);
+
+  // And the offset this package publishes is where those bytes actually are.
+  const raw = new DataView(bytes.buffer, bytes.byteOffset).getBigUint64(USER_FLAGS_OFFSET, true);
+  assert.equal(raw, d.userFlags, `user_flags is not at byte ${USER_FLAGS_OFFSET}`);
+});
+
+test('a position created before the switches existed decodes as unset', () => {
+  // Every live Deployer at upgrade time had zeros across its whole reserve. That is the
+  // property that made the carve a no-op for existing users, so it is pinned here too.
+  const d = decodeDeployer(deployerBytes({ userFlags: 0n }));
+  assert.equal(d.userFlags, 0n);
+  assert.equal(isMiningPaused(d), false);
+  assert.equal(areVaultBuysHeld(d), false);
+});
+
+test('the two switches are read independently of each other', () => {
+  const cases = [
+    [USER_FLAG.PAUSE_MINING, true, false],
+    [USER_FLAG.HOLD_VAULT_BUYS, false, true],
+    [USER_FLAG.PAUSE_MINING | USER_FLAG.HOLD_VAULT_BUYS, true, true],
+    [0n, false, false],
+  ];
+  for (const [flags, paused, held] of cases) {
+    const d = decodeDeployer(deployerBytes({ userFlags: flags }));
+    assert.equal(isMiningPaused(d), paused, `paused for ${flags}`);
+    assert.equal(areVaultBuysHeld(d), held, `held for ${flags}`);
+  }
+  // Bits the program does not know must not be mistaken for either switch.
+  const junk = decodeDeployer(deployerBytes({ userFlags: 1n << 40n }));
+  assert.equal(isMiningPaused(junk), false);
+  assert.equal(areVaultBuysHeld(junk), false);
+});
+
+test('USER_FLAG values are the bit indices the ABI publishes, shifted', () => {
+  assert.equal(USER_FLAG.PAUSE_MINING, 1n);
+  assert.equal(USER_FLAG.HOLD_VAULT_BUYS, 2n);
+  assert.equal(USER_FLAGS_KNOWN, 3n, 'both bits, and nothing the program would refuse');
+  for (const v of Object.values(USER_FLAG)) {
+    assert.equal(typeof v, 'bigint');
+    assert.equal(v & USER_FLAGS_KNOWN, v, 'every published switch must be inside the known mask');
+  }
 });

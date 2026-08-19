@@ -41,6 +41,33 @@ export const FLAG = Object.freeze(
   ),
 );
 
+/**
+ * `Deployer.user_flags` bits, as testable bigint masks — the switches a USER owns.
+ *
+ * Moved only by `ixSetUserFlags`, signed by the position owner; an operator can never write
+ * them. 0 is always the pre-existing behaviour, which is why the field could be carved into
+ * live accounts without a migration.
+ *
+ *   PAUSE_MINING     stops deploys ONLY. Settles, both claims, prize collection and
+ *                    withdrawals keep running — a pause is not a way to strand money the
+ *                    protocol owes the user. It does cost the streak.
+ *   HOLD_VAULT_BUYS  stops BOTH ticket legs, so earned hashrate banks on the Miner and the
+ *                    user picks which iteration to release it into. Does not stop claim_sats.
+ */
+export const USER_FLAG = Object.freeze(
+  Object.fromEntries(
+    Object.entries(abi.whiteknight.userFlags)
+      .filter(([k]) => !k.startsWith('_'))
+      .map(([k, bit]) => [k, 1n << BigInt(bit)]),
+  ),
+);
+
+/** Every bit the program understands. A mask touching anything else is refused (BadSetting). */
+export const USER_FLAGS_KNOWN = Object.values(USER_FLAG).reduce((a, b) => a | b, 0n);
+
+/** Byte offset of `Deployer.user_flags`, for callers that read the field without decoding. */
+export const USER_FLAGS_OFFSET = abi.whiteknight.userFlagsOffset;
+
 /** The most wallets a Manager can ever run — only 21 epoch prizes exist. */
 export const MAX_SHARDS_HARD_CAP = abi.whiteknight.maxShardsHardCap;
 

@@ -12,12 +12,13 @@ import { createHash } from 'node:crypto';
 import { idl as rawIdl } from '@whiteknight-solana/abi';
 import {
   indexIdl, ROLE,
-  ixCreateManager, ixCreateDeployer, ixUpdateDeployer, ixTransferManager,
+  ixCreateManager, ixCreateDeployer, ixUpdateDeployer, ixTransferManager, ixSetUserFlags,
   ixDepositBalance, ixWithdrawBalance, ixWithdrawTokens, ixCloseShard,
   ixSettleBatch, ixClaimUsdBatch, ixClaimSatsBatch,
   ixClaimEpochRewardsBatch, ixClaimOneBtcRewardsBatch, ixCloseOneBtcTicketsBatch,
   ixDeployBatch, ixBuyEpochTicketsBatch, ixBuyOneBtcTicketsBatch,
   SATRUSH_PROGRAM, USDC_MINT, CBBTC_MINT, TOKEN_PROGRAM, ATA_PROGRAM, SYSTEM_PROGRAM,
+  USER_FLAG,
 } from '../index.js';
 
 const disc = (name) =>
@@ -259,4 +260,68 @@ test('one btc buy batch: each ticket is a WRITABLE SIGNER the caller must co-sig
   const last = ix.accounts[ix.accounts.length - 1];
   assert.equal(String(last.address), String(shards[0].ticket));
   assert.equal(last.role, ROLE.WRITABLE_SIGNER);
+});
+
+// =====================================================================================
+// set_user_flags — encoded from first principles, because a wallet signs the result.
+// =====================================================================================
+
+test('ixSetUserFlags: discriminator, account roles and mask/value bytes', () => {
+  const ix = ixSetUserFlags(client, {
+    authority: K[0],
+    manager: K[1],
+    deployer: K[2],
+    mask: USER_FLAG.PAUSE_MINING,
+    value: USER_FLAG.PAUSE_MINING,
+  });
+
+  assert.deepEqual([...ix.data.subarray(0, 8)], disc('set_user_flags'));
+
+  // Two u64s, little-endian, hand-written rather than read back from the encoder.
+  const args = new Uint8Array(16);
+  new DataView(args.buffer).setBigUint64(0, 1n, true); // mask  = bit 0
+  new DataView(args.buffer).setBigUint64(8, 1n, true); // value = bit 0
+  assert.deepEqual([...ix.data.subarray(8)], [...args]);
+  assert.equal(ix.data.length, 24, 'discriminator + two u64s and nothing else');
+
+  // THE access-control shape. The owner signs; the deployer is the only account written;
+  // there is no config and no crank, so no operator path exists to get wrong.
+  assert.deepEqual(ix.accounts.map((a) => a.address), [K[0], K[1], K[2]]);
+  // The owner signs but is READONLY: this instruction creates nothing and moves no lamports,
+  // so there is no rent for them to pay. Only the Deployer is written.
+  assert.equal(ix.accounts[0].role, ROLE.READONLY_SIGNER);
+  assert.equal(ix.accounts[1].role, ROLE.READONLY, 'the Manager is proof of ownership, not a target');
+  assert.equal(ix.accounts[2].role, ROLE.WRITABLE);
+  assert.equal(ix.accounts.length, 3);
+});
+
+test('clearing a switch is the same mask with a zero value, not a different call', () => {
+  const on = ixSetUserFlags(client, {
+    authority: K[0], manager: K[1], deployer: K[2],
+    mask: USER_FLAG.HOLD_VAULT_BUYS, value: USER_FLAG.HOLD_VAULT_BUYS,
+  });
+  const off = ixSetUserFlags(client, {
+    authority: K[0], manager: K[1], deployer: K[2],
+    mask: USER_FLAG.HOLD_VAULT_BUYS, value: 0n,
+  });
+  assert.deepEqual([...on.data.subarray(0, 16)], [...off.data.subarray(0, 16)], 'same ix, same mask');
+  assert.notDeepEqual([...on.data.subarray(16)], [...off.data.subarray(16)], 'only the value differs');
+
+  // The mask is what makes the two switches independent: a call that moves the pause must not
+  // carry the hold bit in its mask, or it would silently clear a hold set from another tab.
+  const maskOf = (ix) => new DataView(ix.data.buffer, ix.data.byteOffset).getBigUint64(8, true);
+  const pause = ixSetUserFlags(client, {
+    authority: K[0], manager: K[1], deployer: K[2],
+    mask: USER_FLAG.PAUSE_MINING, value: USER_FLAG.PAUSE_MINING,
+  });
+  assert.equal(maskOf(pause) & USER_FLAG.HOLD_VAULT_BUYS, 0n, 'the pause call cannot touch the hold');
+});
+
+test('numbers are accepted where bigints are meant — a client bug should not silently encode 0', () => {
+  const ix = ixSetUserFlags(client, {
+    authority: K[0], manager: K[1], deployer: K[2], mask: 3, value: 2,
+  });
+  const dv = new DataView(ix.data.buffer, ix.data.byteOffset);
+  assert.equal(dv.getBigUint64(8, true), 3n);
+  assert.equal(dv.getBigUint64(16, true), 2n);
 });

@@ -68,6 +68,32 @@ export function ixUpdateDeployer(client, { authority, config, manager, deployer,
   );
 }
 
+/**
+ * `set_user_flags(mask, value)` — move the position's own switches. See `USER_FLAG`.
+ *
+ * Deliberately NOT part of `DeployerSettings`: adding a field to that struct would change the
+ * wire format of `create_deployer` and `update_deployer`, so every already-loaded client would
+ * stop being able to save settings the moment the program upgraded. This is additive instead.
+ *
+ * `mask` says which bits this call may touch and `value` what to set them to, so two switches
+ * on one page move independently — a user toggling the pause can never silently revert a hold
+ * set from another tab. Bits outside `mask` are ignored; a mask touching a bit the program does
+ * not know is refused with `BadSetting`.
+ *
+ *   pause:   { mask: USER_FLAG.PAUSE_MINING, value: USER_FLAG.PAUSE_MINING }
+ *   unpause: { mask: USER_FLAG.PAUSE_MINING, value: 0n }
+ *
+ * Signed by the position OWNER only. An operator has no branch here, by design.
+ */
+export function ixSetUserFlags(client, { authority, manager, deployer, mask, value }) {
+  return buildIx(
+    client.idl,
+    'set_user_flags',
+    { authority, manager, deployer },
+    { mask: BigInt(mask), value: BigInt(value) },
+  );
+}
+
 /** `transfer_manager(new_authority)` — hand the whole position to another wallet. */
 export function ixTransferManager(client, { authority, manager, newAuthority }) {
   return buildIx(

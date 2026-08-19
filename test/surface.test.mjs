@@ -15,6 +15,7 @@ const COVERED = {
   create_manager: 'ixCreateManager',
   create_deployer: 'ixCreateDeployer',
   update_deployer: 'ixUpdateDeployer',
+  set_user_flags: 'ixSetUserFlags',
   transfer_manager: 'ixTransferManager',
   deposit_balance: 'ixDepositBalance',
   withdraw_balance: 'ixWithdrawBalance',
