@@ -43,6 +43,10 @@ export const FLAG: Readonly<Record<string, bigint>>;
  *   PAUSE_MINING     stops deploys only; settles, claims, prizes and withdrawals continue.
  *   HOLD_VAULT_BUYS  stops both ticket legs so hashrate banks on the Miner; claim_sats
  *                    keeps running, because that is money owed to the user.
+ *   HOLD_SATS        stops claim_sats, so shares stay in the SatsVault earning the 10% fee
+ *                    other claimers pay. It also freezes the 35% locked hashrate, which only
+ *                    claim_sats releases. Enforced only when the Deployer is passed as a fifth
+ *                    remaining account — see `ixClaimSatsBatch`.
  */
 export const USER_FLAG: Readonly<Record<string, bigint>>;
 /** Every bit the program accepts. A mask touching anything else is refused (BadSetting). */
@@ -176,6 +180,15 @@ export function isMiningPaused(deployer: DeployerState): boolean;
  * the program skips these shards, so including one buys a transaction that can only be refused.
  */
 export function areVaultBuysHeld(deployer: DeployerState): boolean;
+/**
+ * Has the owner held the sats cash-back, keeping SatsVault shares instead of realising them?
+ *
+ * Unlike the other two switches this does NOT predict a refusal: a four-account claim batch
+ * claims for a holder and succeeds, because the program never receives the account the flag
+ * lives on. Read it to honour the switch yourself, or pass `withDeployer` and let the program
+ * enforce it.
+ */
+export function areSatsHeld(deployer: DeployerState): boolean;
 /**
  * Between rounds, `startSlot` and `endSlot` BOTH read `2n ** 64n - 1n`: Sat Rush advances
  * `roundId` about 1.5 seconds before writing the new window (measured 1.2-1.7s on mainnet).
@@ -329,9 +342,21 @@ export function ixSettleBatch(client: WkClient, sr: SatrushAccounts, opts: {
 export function ixClaimUsdBatch(client: WkClient, sr: SatrushAccounts, opts: {
   payer: Addr; config: Addr;
 }, shards: Array<{ manager: Addr; wkAuth: Addr; miner: Addr; usdAta: Addr; authId: number | bigint }>): WkInstruction;
+/**
+ * Four or five accounts per user; `withDeployer` chooses. Five appends each position's
+ * Deployer, the account carrying `user_flags`, and is the only way the program can see
+ * `HOLD_SATS`. The default stays four: claim_usd and claim_sats share one measured batch
+ * width, so a fifth account costs a whole user per transaction.
+ *
+ * With `withDeployer: true` every shard must carry `deployer` or the call throws.
+ * When `payer` is the position's own authority the hold is ignored — that is the force-sweep.
+ */
 export function ixClaimSatsBatch(client: WkClient, sr: SatrushAccounts, opts: {
-  payer: Addr; config: Addr;
-}, shards: Array<{ manager: Addr; wkAuth: Addr; miner: Addr; btcAta: Addr; authId: number | bigint }>): WkInstruction;
+  payer: Addr; config: Addr; withDeployer?: boolean;
+}, shards: Array<{
+  manager: Addr; wkAuth: Addr; miner: Addr; btcAta: Addr; deployer?: Addr;
+  authId: number | bigint;
+}>): WkInstruction;
 export function ixClaimEpochRewardsBatch(client: WkClient, sr: SatrushAccounts, opts: {
   payer: Addr; config: Addr; iterationId: number; iterationAddress: Addr;
 }, shards: Array<{ manager: Addr; wkAuth: Addr; usdAta: Addr; btcAta: Addr; authId: number | bigint }>): WkInstruction;

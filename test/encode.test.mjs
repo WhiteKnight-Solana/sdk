@@ -9,7 +9,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { idl as rawIdl } from '@whiteknight-solana/abi';
+import { idl as rawIdl, constants as abiConstants } from '@whiteknight-solana/abi';
 import {
   indexIdl, ROLE,
   ixCreateManager, ixCreateDeployer, ixUpdateDeployer, ixTransferManager, ixSetUserFlags,
@@ -168,6 +168,73 @@ test('claim_sats batch: 4 extras per shard, btc side', () => {
   const shards = [shard(0), shard(1)];
   const ix = ixClaimSatsBatch(client, sr, { payer: K[0], config: K[1] }, shards);
   verify(ix, 'wk_claim_sats_batch', { extraPerShard: 4, shardCount: 2 });
+});
+
+// =====================================================================================
+// claim_sats takes FOUR OR FIVE accounts per user, and the IDL cannot say so: it describes a
+// fixed account list, and this is a repeating run appended after it. Get the stride wrong and
+// nothing fails at encode time — the program either refuses the whole batch, or reads the run
+// as a different number of users. Both shapes are therefore pinned here, and their ORDER is
+// checked against the ABI rather than against this file's own opinion.
+// =====================================================================================
+
+const claimSatsShape = () =>
+  abiConstants.whiteknight.remainingAccounts.wk_claim_sats_batch;
+
+test('withDeployer appends a fifth account per user, and only then', () => {
+  const shards = [shard(0), shard(1), shard(2)];
+  const four = ixClaimSatsBatch(client, sr, { payer: K[0], config: K[1] }, shards);
+  const five = ixClaimSatsBatch(client, sr, { payer: K[0], config: K[1], withDeployer: true }, shards);
+
+  verify(four, 'wk_claim_sats_batch', { extraPerShard: 4, shardCount: 3 });
+  verify(five, 'wk_claim_sats_batch', { extraPerShard: 5, shardCount: 3 });
+
+  // Both widths must be ones the program actually accepts.
+  const { perUser } = claimSatsShape();
+  const fixed = idlAccountCount('wk_claim_sats_batch');
+  assert.ok(perUser.includes((four.accounts.length - fixed) / 3), 'four-per-user is a published width');
+  assert.ok(perUser.includes((five.accounts.length - fixed) / 3), 'five-per-user is a published width');
+
+  // The default must stay four: claim_usd and claim_sats share one measured batch width, so a
+  // silently-five default would cost a user per transaction on every fleet that upgraded.
+  assert.equal(four.accounts.length, fixed + 4 * 3, 'the default shape is unchanged');
+});
+
+test('the appended run is in the order the ABI publishes, not the order this file assumes', () => {
+  const { order } = claimSatsShape();
+  const s0 = shard(0);
+  // The ABI names accounts; the SDK holds them under its own field names. This is the one
+  // place the two vocabularies meet, so a rename on either side has to be reconciled here
+  // rather than silently producing a well-formed batch with the accounts transposed.
+  const byAbiName = {
+    manager: s0.manager, wk_auth: s0.wkAuth, miner: s0.miner,
+    btc_ata: s0.btcAta, deployer: s0.deployer,
+  };
+  assert.deepEqual(
+    Object.keys(byAbiName), order,
+    'the ABI changed the run it publishes — this mapping must be updated with it',
+  );
+
+  const ix = ixClaimSatsBatch(client, sr, { payer: K[0], config: K[1], withDeployer: true }, [s0]);
+  const run = ix.accounts.slice(idlAccountCount('wk_claim_sats_batch'));
+  assert.equal(run.length, order.length);
+  for (const [i, name] of order.entries()) {
+    assert.equal(String(run[i].address), String(byAbiName[name]), `position ${i} must be ${name}`);
+  }
+});
+
+test('withDeployer names the shard that is missing one, instead of building a broken batch', () => {
+  // A shard with no deployer would contribute four accounts where five were counted, so the
+  // program reads the NEXT user's manager as this one's Deployer. That surfaces as BadPda or
+  // BadRemainingAccounts, neither of which says which shard was malformed.
+  const shards = [shard(0), { ...shard(1), deployer: undefined }];
+  assert.throws(
+    () => ixClaimSatsBatch(client, sr, { payer: K[0], config: K[1], withDeployer: true }, shards),
+    /authId 1 has none/,
+    'the error must identify the offending shard',
+  );
+  // ...and the same shard is fine in the four-account shape, which never needed the field.
+  assert.doesNotThrow(() => ixClaimSatsBatch(client, sr, { payer: K[0], config: K[1] }, shards));
 });
 
 test('epoch rewards batch: iteration_id u32 leads the args', () => {

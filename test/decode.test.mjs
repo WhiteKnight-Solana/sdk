@@ -11,7 +11,7 @@ import {
   Writer, decodeWkConfig, decodeManager, decodeDeployer, decodeMiner, decodeSatsVault,
   decodeEpochVaultIteration, decodeOneBtcVaultEntry,
   WK_CONFIG_LEN, MANAGER_LEN, DEPLOYER_LEN, SIZES, PARAM_COUNT, FLAG, TILE_COUNT,
-  USER_FLAG, USER_FLAGS_KNOWN, USER_FLAGS_OFFSET, isMiningPaused, areVaultBuysHeld,
+  USER_FLAG, USER_FLAGS_KNOWN, USER_FLAGS_OFFSET, isMiningPaused, areVaultBuysHeld, areSatsHeld,
   SATRUSH_PROGRAM, USDC_MINT, CBBTC_MINT, TOKEN_PROGRAM, ATA_PROGRAM, SYSTEM_PROGRAM,
 } from '../index.js';
 
@@ -199,28 +199,42 @@ test('a position created before the switches existed decodes as unset', () => {
   assert.equal(areVaultBuysHeld(d), false);
 });
 
-test('the two switches are read independently of each other', () => {
-  const cases = [
-    [USER_FLAG.PAUSE_MINING, true, false],
-    [USER_FLAG.HOLD_VAULT_BUYS, false, true],
-    [USER_FLAG.PAUSE_MINING | USER_FLAG.HOLD_VAULT_BUYS, true, true],
-    [0n, false, false],
+test('every switch is read independently of every other', () => {
+  // Swept rather than listed. The hand-written table this replaces named four combinations of
+  // two switches; when a third arrived it kept passing while saying nothing about it, which is
+  // the failure mode a table has and a sweep does not.
+  const readers = [
+    ['PAUSE_MINING', isMiningPaused],
+    ['HOLD_VAULT_BUYS', areVaultBuysHeld],
+    ['HOLD_SATS', areSatsHeld],
   ];
-  for (const [flags, paused, held] of cases) {
+  assert.equal(
+    readers.length,
+    Object.keys(USER_FLAG).length,
+    'every published switch needs a reader here, or this sweep silently skips one',
+  );
+
+  for (let combo = 0; combo < 1 << readers.length; combo++) {
+    const flags = readers.reduce(
+      (acc, [name], i) => (combo & (1 << i) ? acc | USER_FLAG[name] : acc),
+      0n,
+    );
     const d = decodeDeployer(deployerBytes({ userFlags: flags }));
-    assert.equal(isMiningPaused(d), paused, `paused for ${flags}`);
-    assert.equal(areVaultBuysHeld(d), held, `held for ${flags}`);
+    for (const [i, [name, read]] of readers.entries()) {
+      assert.equal(read(d), Boolean(combo & (1 << i)), `${name} for flags ${flags}`);
+    }
   }
-  // Bits the program does not know must not be mistaken for either switch.
+
+  // Bits the program does not know must not be mistaken for any switch.
   const junk = decodeDeployer(deployerBytes({ userFlags: 1n << 40n }));
-  assert.equal(isMiningPaused(junk), false);
-  assert.equal(areVaultBuysHeld(junk), false);
+  for (const [name, read] of readers) assert.equal(read(junk), false, `${name} on an unknown bit`);
 });
 
 test('USER_FLAG values are the bit indices the ABI publishes, shifted', () => {
   assert.equal(USER_FLAG.PAUSE_MINING, 1n);
   assert.equal(USER_FLAG.HOLD_VAULT_BUYS, 2n);
-  assert.equal(USER_FLAGS_KNOWN, 3n, 'both bits, and nothing the program would refuse');
+  assert.equal(USER_FLAG.HOLD_SATS, 4n);
+  assert.equal(USER_FLAGS_KNOWN, 7n, 'every bit, and nothing the program would refuse');
   for (const v of Object.values(USER_FLAG)) {
     assert.equal(typeof v, 'bigint');
     assert.equal(v & USER_FLAGS_KNOWN, v, 'every published switch must be inside the known mask');

@@ -264,14 +264,42 @@ export function ixClaimUsdBatch(client, sr, { payer, config }, shards) {
  * `wk_claim_sats_batch(auth_ids)` — the 12% cash-back, paid in cbBTC. How much locked
  * hashrate one pass releases is `param::CLAIM_SATS_TICKETS` on the config (0 = everything),
  * read by the program — no caller-supplied size exists. Claiming burns shares at a 10% fee.
+ *
+ * FOUR OR FIVE ACCOUNTS PER USER, and `withDeployer` is the choice. Four is the default and is
+ * what this function has always sent; five appends each position's Deployer, which is the
+ * account carrying `user_flags`, and is the only way the program can see `HOLD_SATS` at all.
+ *
+ * The default is four deliberately, and not merely for compatibility. `claim_usd` and
+ * `claim_sats` share one measured batch width, so a fifth account costs a whole user per
+ * transaction — a permanent rise in claim traffic for every position, to serve a switch most
+ * will not set. An operator is usually better off reading `areSatsHeld` and leaving holders
+ * out of the batch, which costs nothing and needs no extra account.
+ *
+ * Pass `withDeployer: true` when you want the PROGRAM to enforce the hold rather than trusting
+ * your own filter — defence against your own bugs, at one account per user. Note it is not a
+ * guarantee anyone else honours: `claim_sats` is open to any signer by design, so a four-account
+ * caller can always claim for a holder, and the switch is a standing instruction to whoever
+ * automates for you rather than a lock against the world.
+ *
+ * THE OWNER IS NEVER HELD BY THEIR OWN SWITCH. When `payer` is the position's own authority the
+ * program ignores the flag and claims, which is the force-sweep and needs no other instruction.
  */
-export function ixClaimSatsBatch(client, sr, { payer, config }, shards) {
-  const extra = shards.flatMap((s) => [
-    readonly(s.manager),
-    writable(s.wkAuth),
-    writable(s.miner),
-    writable(s.btcAta),
-  ]);
+export function ixClaimSatsBatch(client, sr, { payer, config, withDeployer = false }, shards) {
+  const extra = shards.flatMap((s) => {
+    const run = [readonly(s.manager), writable(s.wkAuth), writable(s.miner), writable(s.btcAta)];
+    if (!withDeployer) return run;
+    // Without this the run silently comes up one short for that user and the program reads the
+    // NEXT user's manager as this one's Deployer — a length mismatch that fails as
+    // BadRemainingAccounts if the count lands wrong, and as BadPda if it does not. Neither
+    // error names the shard that was missing a field, so name it here.
+    if (!s.deployer) {
+      throw new Error(
+        `ixClaimSatsBatch({ withDeployer: true }) needs a deployer on every shard; ` +
+          `authId ${s.authId} has none`,
+      );
+    }
+    return [...run, readonly(s.deployer)];
+  });
   return buildIx(
     client.idl,
     'wk_claim_sats_batch',

@@ -117,6 +117,22 @@ export function areVaultBuysHeld(deployer) {
   return (deployer.userFlags & USER_FLAG.HOLD_VAULT_BUYS) !== 0n;
 }
 
+/**
+ * Has its owner held the sats cash-back, keeping SatsVault shares instead of realising them?
+ *
+ * Worth reading before building a claim batch, but the consequence is the opposite of the other
+ * two switches: a held position is skipped ONLY if you pass its Deployer as a fifth remaining
+ * account. A four-account batch claims for a holder and succeeds, because the program never
+ * receives the account the flag lives on. So this is the read that lets a caller honour the
+ * switch itself — it is not a prediction that the transaction would fail.
+ *
+ * The owner is never held by their own switch: a claim signed by `deployer.authority` proceeds
+ * whatever this returns, which is the force-sweep.
+ */
+export function areSatsHeld(deployer) {
+  return (deployer.userFlags & USER_FLAG.HOLD_SATS) !== 0n;
+}
+
 // ---------------------------------------------------------------- satrush
 
 function check(data, name) {

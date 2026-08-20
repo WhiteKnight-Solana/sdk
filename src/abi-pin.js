@@ -7,10 +7,10 @@
 // version while believing it targets another is the exact failure this pin exists to prevent.
 
 /** The abi repo commit the dependency is pinned to. */
-export const ABI_COMMIT = 'c6c325d3e8dc61c80d399bac0dda06baf6e96952';
+export const ABI_COMMIT = '0f12500a30312465356f2afed477e1e8f361f776';
 
 /** sha256 of the pinned @whiteknight-solana/abi MANIFEST.json (which itself pins every artifact). */
-export const ABI_MANIFEST_SHA256 = 'dba1acbb78010d98514c696e93e267730dd478ae05a7984c4eac6f56c296e137';
+export const ABI_MANIFEST_SHA256 = '640a9e3ef655aec16a89cfde12a9768bdfb13d5d8d6d4922f55efbcecee6cf07';
 
 /** sha256 of the pinned IDL bytes, for direct verification without trusting the manifest. */
 export const ABI_IDL_SHA256 = 'f0ee5174a044fa3be3d69156fdd81ced573c5a1b7f454cd2d79875f019e7c2ae';

@@ -8,6 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { idl } from '@whiteknight-solana/abi';
+import { readFileSync } from 'node:fs';
 import * as sdk from '../index.js';
 
 const COVERED = {
@@ -61,4 +62,35 @@ test('no admin instruction has a builder that snuck in', () => {
   for (const admin of ['setparam', 'setkey', 'setflags', 'initconfig', 'transferadmin', 'acceptadmin']) {
     assert.ok(!names.some((n) => n.includes(admin)), `admin builder for ${admin} found in exports`);
   }
+});
+
+// =====================================================================================
+// The shipped types must describe the shipped code.
+//
+// index.d.ts is hand-written and nothing generated it, so an export added to the runtime
+// arrives untyped: TypeScript consumers get an implicit-any or a "has no exported member"
+// depending on their settings, and neither failure happens in this repo's tests. That is the
+// exact drift that let `areSatsHeld` nearly ship without a declaration.
+// =====================================================================================
+
+test('every runtime export is declared in index.d.ts', () => {
+  const dts = readFileSync(new URL('../index.d.ts', import.meta.url), 'utf8');
+  // Declarations only — a name that appears solely inside a doc comment is not a declaration,
+  // and matching prose would make this test pass on a mention.
+  const declared = new Set(
+    [...dts.matchAll(/^export (?:declare )?(?:function|const|class|type|interface|enum)\s+(\w+)/gm)]
+      .map((m) => m[1]),
+  );
+  const missing = Object.keys(sdk).filter((name) => !declared.has(name));
+  assert.deepEqual(missing, [], `exported at runtime but not declared in index.d.ts: ${missing.join(', ')}`);
+});
+
+test('index.d.ts does not declare things the runtime does not export', () => {
+  // The other direction: a declaration for a function that was renamed or removed is a promise
+  // the package cannot keep, and it type-checks fine right up until someone calls it.
+  const dts = readFileSync(new URL('../index.d.ts', import.meta.url), 'utf8');
+  const declared = [...dts.matchAll(/^export (?:declare )?(?:function|const|class)\s+(\w+)/gm)].map((m) => m[1]);
+  const runtime = new Set(Object.keys(sdk));
+  const phantom = declared.filter((name) => !runtime.has(name));
+  assert.deepEqual(phantom, [], `declared in index.d.ts but not exported at runtime: ${phantom.join(', ')}`);
 });

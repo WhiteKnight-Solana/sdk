@@ -53,6 +53,13 @@ export const FLAG = Object.freeze(
  *                    protocol owes the user. It does cost the streak.
  *   HOLD_VAULT_BUYS  stops BOTH ticket legs, so earned hashrate banks on the Miner and the
  *                    user picks which iteration to release it into. Does not stop claim_sats.
+ *   HOLD_SATS        stops claim_sats, so the position keeps its SatsVault shares and earns
+ *                    the 10% fee every OTHER claimer pays. The cost is not that fee: claim_sats
+ *                    is the ONLY thing that releases locked hashrate, and the release is
+ *                    strictly proportional to the burn, so holding freezes 35% of everything
+ *                    mined, earning nothing. Enforced only when the caller passes the position's
+ *                    Deployer as a fifth remaining account (see `ixClaimSatsBatch`); a
+ *                    four-account caller cannot see the flag and claims regardless.
  */
 export const USER_FLAG = Object.freeze(
   Object.fromEntries(
