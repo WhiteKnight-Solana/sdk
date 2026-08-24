@@ -60,7 +60,7 @@ export function decodeDeployer(d) {
     throw new Error(`wk: Deployer is ${d.length} bytes, expected ${DEPLOYER_LEN}`);
   }
   const r = new Reader(d).seek(8);
-  return {
+  const out = {
     // ---- identity ----
     manager: r.pubkey(),
     deployAuthority: r.pubkey(),
@@ -72,8 +72,11 @@ export function decodeDeployer(d) {
     expectedBpsFee: r.u64(),
     expectedFlatFee: r.u64(),
     maxShards: r.u8(),
-    // ---- the user's settings ----
-    perRoundAmount: r.u64(),
+    // ---- the user's consent ceiling on spend (v2) ----
+    // Same byte slot that held perRoundAmount, the exact bet the old program divided. v2
+    // reinterprets it as the CEILING on the round's total stake across all the user's
+    // shards, enforced by the last_round/stakedInRound meter, skip-never-clamp.
+    maxPerRound: r.u64(),
     tileCount: r.u8(),
     // A COUNT of rounds to play, not a board round id.
     runRounds: r.u32(),
@@ -100,6 +103,11 @@ export function decodeDeployer(d) {
     // they existed, which is exactly what "unset" means for both of them.
     userFlags: r.u64(),
   };
+  // DEPRECATED alias, kept for exactly one pin cycle: readers written against v1 see the
+  // same number under the old name. It is the CEILING now, not the exact bet — new code
+  // must read maxPerRound and say what it means.
+  out.perRoundAmount = out.maxPerRound;
+  return out;
 }
 
 /** Is this position's mining paused by its owner? */

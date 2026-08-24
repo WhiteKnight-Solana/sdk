@@ -64,6 +64,8 @@ const shard = (i) => ({
   entry: K[(i + 8) % K.length], pd: K[(i + 9) % K.length], automation: K[i % K.length],
   automationAta: K[(i + 1) % K.length], publicDeployment: K[(i + 2) % K.length],
   address: K[(i + 3) % K.length], authId: BigInt(i),
+  // v2 request fields: the crank names the bet and the tiles / the ticket count.
+  amount: 2_100_000n + BigInt(i), tileMask: 0x1f_ffff, tickets: 500n + BigInt(i),
 });
 
 const sr = {
@@ -291,28 +293,41 @@ test('settle batch: 6 extras per entry in the program walk order', () => {
 
 // ---------------------------------------------------------------- operator batches
 
-test('deploy batch: 5 extras per shard, round_id u32 then vec', () => {
+test('deploy batch: 5 extras per shard; items are 20-byte {auth, amount, mask} triples', () => {
   const shards = [shard(0), shard(1)];
   const ix = ixDeployBatch(
     client, sr,
     {
-      operator: K[0], config: K[1], roundId: 4, round: K[2], previousRound: K[3],
+      operator: K[0], config: K[1], roundId: 4, round: K[2],
       operatorUsdAta: K[4], platformUsdAta: K[5],
     },
     shards,
   );
+  // round_id 4 u32 LE ‖ vec len 2 u32 LE ‖ per item: auth_id u64 ‖ amount u64 ‖ tile_mask u32.
+  // Byte-exact on purpose: this is the wire the program borsh-decodes, and the 20-byte item
+  // width is what makes an old auth_ids payload fail loudly against the v2 program.
+  const item = (auth, amount) => [
+    auth, 0, 0, 0, 0, 0, 0, 0,
+    ...[amount & 0xff, (amount >> 8) & 0xff, (amount >> 16) & 0xff, (amount >> 24) & 0xff],
+    0, 0, 0, 0,
+    0xff, 0xff, 0x1f, 0, // mask 0x1fffff = all 21 tiles
+  ];
   verify(ix, 'wk_deploy_batch', {
     extraPerShard: 5, shardCount: 2,
-    args: [4, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+    args: [4, 0, 0, 0, 2, 0, 0, 0, ...item(0, 2_100_000), ...item(1, 2_100_001)],
   });
 });
 
-test('epoch buy batch: deployer rides writable — the ratio flow ledger lives there', () => {
+test('epoch buy batch: 16-byte {auth, tickets} items; deployer still rides for the hold check', () => {
   const shards = [shard(0)];
   const ix = ixBuyEpochTicketsBatch(
     client, sr, { operator: K[0], config: K[1], iterationAddress: K[2] }, shards,
   );
-  verify(ix, 'wk_buy_epoch_tickets_batch', { extraPerShard: 6, shardCount: 1 });
+  verify(ix, 'wk_buy_epoch_tickets_batch', {
+    extraPerShard: 6, shardCount: 1,
+    // vec len 1 ‖ auth_id 0 u64 ‖ tickets 500 u64 — whole tickets, the CPI's own unit.
+    args: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xf4, 0x01, 0, 0, 0, 0, 0, 0],
+  });
   const base = idlAccountCount('wk_buy_epoch_tickets_batch');
   assert.equal(String(ix.accounts[base + 1].address), String(shards[0].deployer));
   assert.equal(ix.accounts[base + 1].role, ROLE.WRITABLE);
@@ -323,7 +338,10 @@ test('one btc buy batch: each ticket is a WRITABLE SIGNER the caller must co-sig
   const ix = ixBuyOneBtcTicketsBatch(
     client, sr, { operator: K[0], config: K[1], iterationAddress: K[2] }, shards,
   );
-  verify(ix, 'wk_buy_one_btc_tickets_batch', { extraPerShard: 5, shardCount: 1 });
+  verify(ix, 'wk_buy_one_btc_tickets_batch', {
+    extraPerShard: 5, shardCount: 1,
+    args: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xf4, 0x01, 0, 0, 0, 0, 0, 0],
+  });
   const last = ix.accounts[ix.accounts.length - 1];
   assert.equal(String(last.address), String(shards[0].ticket));
   assert.equal(last.role, ROLE.WRITABLE_SIGNER);

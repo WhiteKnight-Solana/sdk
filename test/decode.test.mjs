@@ -96,7 +96,8 @@ test('Deployer round-trips every field including the four reserve carves', () =>
   const d = decodeDeployer(bytes);
   assert.equal(d.manager, String(PK[0]));
   assert.equal(d.shardCount, 3);
-  assert.equal(d.perRoundAmount, 1_500_000n);
+  assert.equal(d.maxPerRound, 1_500_000n, 'v2: the slot is the cross-shard ceiling');
+  assert.equal(d.perRoundAmount, 1_500_000n, 'deprecated alias, same number, one pin cycle');
   assert.equal(d.autoReload, true);
   assert.equal(d.roundsPlayed, 88);
   assert.equal(d.stakeAllowance, 9_000_000n);

@@ -159,6 +159,9 @@ export interface DeployerState {
   manager: Address; deployAuthority: Address;
   bpsFee: bigint; flatFee: bigint; shardCount: number;
   expectedBpsFee: bigint; expectedFlatFee: bigint; maxShards: number;
+  /** v2: the ceiling on the round's TOTAL stake across all shards (the old exact-bet slot). */
+  maxPerRound: bigint;
+  /** @deprecated same number as maxPerRound — v1 name, kept for one pin cycle. */
   perRoundAmount: bigint; tileCount: number; runRounds: number; whenFundsLow: number;
   maxPerTile: bigint; minBet: bigint; stopLevel: bigint; autoReload: boolean;
   minStrikePotUsd: bigint; maxStrikePotUsd: bigint;
@@ -368,23 +371,31 @@ export function ixCloseOneBtcTicketsBatch(client: WkClient, sr: SatrushAccounts,
 }, tickets: Array<{ manager: Addr; wkAuth: Addr; address: Addr; authId: number | bigint }>): WkInstruction;
 
 export function ixDeployBatch(client: WkClient, sr: SatrushAccounts, opts: {
-  operator: Addr; config: Addr; roundId: number; round: Addr; previousRound: Addr;
+  operator: Addr; config: Addr; roundId: number; round: Addr;
   operatorUsdAta: Addr; platformUsdAta: Addr;
 }, shards: Array<{
   deployer: Addr; wkAuth: Addr; usdAta: Addr; publicDeployment: Addr; miner: Addr;
   authId: number | bigint;
+  /** v2: the bet in USDC micros — both fee legs charge on top. Must divide by the mask's popcount. */
+  amount: number | bigint;
+  /** v2: bit i ⇒ tile i+1; popcount within the config band, bits within TILE_TOTAL. */
+  tileMask: number;
 }>): WkInstruction;
 export function ixBuyEpochTicketsBatch(client: WkClient, sr: SatrushAccounts, opts: {
   operator: Addr; config: Addr; iterationAddress: Addr;
 }, shards: Array<{
   manager: Addr; deployer: Addr; wkAuth: Addr; miner: Addr; page: Addr; entry: Addr;
   authId: number | bigint;
+  /** v2: WHOLE tickets (1 ticket = 100 spendable hashrate units); over-asks skip whole. */
+  tickets: number | bigint;
 }>): WkInstruction;
 export function ixBuyOneBtcTicketsBatch(client: WkClient, sr: SatrushAccounts, opts: {
   operator: Addr; config: Addr; iterationAddress: Addr;
 }, shards: Array<{
   manager: Addr; deployer: Addr; wkAuth: Addr; miner: Addr; ticket: Addr;
   authId: number | bigint;
+  /** v2: WHOLE tickets, same contract as the epoch leg. */
+  tickets: number | bigint;
 }>): WkInstruction;
 
 // ---------------------------------------------------------------- read

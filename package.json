@@ -1,6 +1,6 @@
 {
   "name": "@whiteknight-solana/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "JS/TS client for the WhiteKnight program: PDAs, decoders, readers, and every public instruction, encoded from the pinned ABI at runtime.",
   "license": "MIT",
   "type": "module",
@@ -29,6 +29,6 @@
   },
   "dependencies": {
     "@solana/kit": "7.0.0",
-    "@whiteknight-solana/abi": "github:WhiteKnight-Solana/abi#0f12500a30312465356f2afed477e1e8f361f776"
+    "@whiteknight-solana/abi": "github:WhiteKnight-Solana/abi#7a0ad6a6e322f6d7278b82c50d58bb35c7eb0164"
   }
 }

@@ -410,18 +410,24 @@ export function ixCloseOneBtcTicketsBatch(client, sr, { payer, config, iteration
 // ---------------------------------------------------------------- operator
 
 /**
- * `wk_deploy_batch(round_id, auth_ids)` — stake every listed shard into a round. Signed by the
- * operator each user hired; the program verifies the signer against every Deployer in the
- * batch and prices fees inside the user's ceilings.
+ * `wk_deploy_batch(round_id, items)` — stake every listed shard into a round, each at the
+ * AMOUNT and TILE MASK the caller names (v2: the operator is the strategist, the program is
+ * the bouncer). The program checks each item against the user's fee ceilings and
+ * `max_per_round` meter, the protocol's amount/mask bounds, and the balance — then executes
+ * it verbatim or skips it with a `WkDeploySkipped` event. It never resizes: `amount` must
+ * divide evenly by the mask's popcount or the item skips, and the same shard twice in one
+ * call reverts the whole batch (`DuplicateAuthId`).
  *
- * Shards: `{ deployer, wkAuth, usdAta, publicDeployment, miner, authId }`.
+ * Shards: `{ deployer, wkAuth, usdAta, publicDeployment, miner, authId, amount, tileMask }`
+ * — `amount` in USDC micros (the bet; both fee legs are charged on top), `tileMask` a u32
+ * with bit i ⇒ tile i+1.
  * `operatorUsdAta` must be owned by the signing operator, `platformUsdAta` by the config's
  * fee collector — the program checks both, so neither fee can be redirected.
  */
 export function ixDeployBatch(
   client,
   sr,
-  { operator, config, roundId, round, previousRound, operatorUsdAta, platformUsdAta },
+  { operator, config, roundId, round, operatorUsdAta, platformUsdAta },
   shards,
 ) {
   const extra = shards.flatMap((s) => [
@@ -443,27 +449,33 @@ export function ixDeployBatch(
       satrush_config: sr.satrushConfig,
       board: sr.board,
       round,
-      // Round N-1: where the strike gate reads its BTC rate from. The program re-derives it.
-      previous_round: previousRound,
       board_usd_ata: sr.boardUsdAta,
       event_authority: sr.eventAuthority,
       satrush_program: srProgram(sr),
       token_program: TOKEN_PROGRAM,
       system_program: SYSTEM_PROGRAM,
     },
-    { round_id: roundId, auth_ids: shards.map((s) => BigInt(s.authId)) },
+    {
+      round_id: roundId,
+      items: shards.map((s) => ({
+        auth_id: BigInt(s.authId),
+        amount: BigInt(s.amount),
+        tile_mask: s.tileMask,
+      })),
+    },
     extra,
   );
 }
 
 /**
- * `wk_buy_epoch_tickets_batch(auth_ids)` — spend earned hashrate on epoch raffle entries. The
- * PROGRAM computes each user's buy from their settings (knee cap, floor, jackpot ratio) — the
- * auth_ids only nominate who is considered.
+ * `wk_buy_epoch_tickets_batch(items)` — spend earned hashrate on epoch raffle entries, each
+ * shard at the WHOLE-TICKET count the caller names (v2: the knee/floor/ratio split is
+ * operator policy, computed off-chain). The program enforces only the spend: 1 ticket = 100
+ * spendable hashrate units, a request the bank cannot cover is skipped whole (never
+ * partially filled), and locked hashrate is untouchable.
  *
- * Shards: `{ manager, deployer, wkAuth, miner, page, entry, authId }` — `page` is the
- * iteration's page PDA for that user's entry, `entry` their epochVaultEntry PDA. Deployer is
- * writable: the jackpot-ratio flow ledger lives there.
+ * Shards: `{ manager, deployer, wkAuth, miner, page, entry, authId, tickets }` — `page` is
+ * the iteration's page PDA for that user's entry, `entry` their epochVaultEntry PDA.
  */
 export function ixBuyEpochTicketsBatch(client, sr, { operator, config, iterationAddress }, shards) {
   const extra = shards.flatMap((s) => [
@@ -487,18 +499,19 @@ export function ixBuyEpochTicketsBatch(client, sr, { operator, config, iteration
       satrush_program: srProgram(sr),
       system_program: SYSTEM_PROGRAM,
     },
-    { auth_ids: shards.map((s) => BigInt(s.authId)) },
+    { items: shards.map((s) => ({ auth_id: BigInt(s.authId), tickets: BigInt(s.tickets) })) },
     extra,
   );
 }
 
 /**
- * `wk_buy_one_btc_tickets_batch(auth_ids)` — 1 BTC jackpot entries. Each shard's `ticket` is a
- * FRESH KEYPAIR the caller generated and must co-sign the transaction with (Sat Rush tickets
- * are keypair accounts, not PDAs). This SDK never generates or holds keys — pass the public
+ * `wk_buy_one_btc_tickets_batch(items)` — 1 BTC jackpot entries, whole-ticket counts named
+ * by the caller (same v2 contract as the epoch leg). Each shard's `ticket` is a FRESH
+ * KEYPAIR the caller generated and must co-sign the transaction with (Sat Rush tickets are
+ * keypair accounts, not PDAs). This SDK never generates or holds keys — pass the public
  * addresses here and sign with the keypairs yourself.
  *
- * Shards: `{ manager, deployer, wkAuth, miner, ticket, authId }`.
+ * Shards: `{ manager, deployer, wkAuth, miner, ticket, authId, tickets }`.
  */
 export function ixBuyOneBtcTicketsBatch(client, sr, { operator, config, iterationAddress }, shards) {
   const extra = shards.flatMap((s) => [
@@ -520,7 +533,7 @@ export function ixBuyOneBtcTicketsBatch(client, sr, { operator, config, iteratio
       satrush_program: srProgram(sr),
       system_program: SYSTEM_PROGRAM,
     },
-    { auth_ids: shards.map((s) => BigInt(s.authId)) },
+    { items: shards.map((s) => ({ auth_id: BigInt(s.authId), tickets: BigInt(s.tickets) })) },
     extra,
   );
 }
