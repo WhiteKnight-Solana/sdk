@@ -38,6 +38,7 @@ export const satrushPdas = {
   config: (p = SATRUSH_PROGRAM) => pda(p, [seed('satrush_config')]),
   board: (p = SATRUSH_PROGRAM) => pda(p, [seed('board')]),
   satsVault: (p = SATRUSH_PROGRAM) => pda(p, [seed('sats_vault')]),
+  tokenVault: (p = SATRUSH_PROGRAM) => pda(p, [seed('token_vault')]),
   epochVault: (p = SATRUSH_PROGRAM) => pda(p, [seed('epoch_vault')]),
   oneBtcVault: (p = SATRUSH_PROGRAM) => pda(p, [seed('one_btc_vault')]),
   treasury: (p = SATRUSH_PROGRAM) => pda(p, [seed('treasury')]),

@@ -5,7 +5,7 @@
 
 import { getAddressDecoder } from '@solana/kit';
 import {
-  decodeWkConfig, decodeManager, decodeDeployer, decodeSatsVault, decodeMiner,
+  decodeWkConfig, decodeManager, decodeDeployer, decodeSatsVault, decodeTokenVault, decodeMiner,
 } from './decode.js';
 import { wkPdas, satrushPdas } from './pdas.js';
 import { MANAGER_LEN, SIZES, SATRUSH_PROGRAM } from './constants.js';
@@ -94,6 +94,7 @@ export async function readClaimable(client, shards) {
   let unclaimedUsd = 0n;
   let lockedHashrate = 0n;
   let btcShares = 0n;
+  let tokenShares = 0n;
   const withMiner = [];
   res.value.forEach((v, i) => {
     if (!v) return;
@@ -106,9 +107,10 @@ export async function readClaimable(client, shards) {
     unclaimedUsd += m.unclaimedUsd;
     lockedHashrate += m.unclaimedHashrate;
     btcShares += m.unclaimedBtcShares;
+    tokenShares += m.unclaimedTokenShares;
     withMiner.push({ ...shards[i], minerState: m });
   });
-  return { unclaimedUsd, lockedHashrate, btcShares, withMiner };
+  return { unclaimedUsd, lockedHashrate, btcShares, tokenShares, withMiner };
 }
 
 /** Satoshis-per-share view of the live `SatsVault`, or null. */
@@ -117,6 +119,14 @@ export async function readSatsVault(client) {
   const d = await accountBytes(client, pda);
   if (!d || d.length !== SIZES.SatsVault) return null;
   return decodeSatsVault(d);
+}
+
+/** RUSH-per-share view of the live Sat Rush v2 TokenVault, or null. */
+export async function readTokenVault(client) {
+  const pda = await satrushPdas.tokenVault();
+  const d = await accountBytes(client, pda);
+  if (!d || d.length !== SIZES.TokenVault) return null;
+  return decodeTokenVault(d);
 }
 
 /**

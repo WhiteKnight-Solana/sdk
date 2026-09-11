@@ -26,6 +26,7 @@ const COVERED = {
   wk_settle_batch: 'ixSettleBatch',
   wk_claim_usd_batch: 'ixClaimUsdBatch',
   wk_claim_sats_batch: 'ixClaimSatsBatch',
+  wk_claim_token_batch: 'ixClaimTokenBatch',
   wk_claim_epoch_rewards_batch: 'ixClaimEpochRewardsBatch',
   wk_claim_one_btc_rewards_batch: 'ixClaimOneBtcRewardsBatch',
   wk_close_one_btc_tickets_batch: 'ixCloseOneBtcTicketsBatch',

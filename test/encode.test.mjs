@@ -14,10 +14,11 @@ import {
   indexIdl, ROLE,
   ixCreateManager, ixCreateDeployer, ixUpdateDeployer, ixTransferManager, ixSetUserFlags,
   ixDepositBalance, ixWithdrawBalance, ixWithdrawTokens, ixCloseShard,
-  ixSettleBatch, ixClaimUsdBatch, ixClaimSatsBatch,
+  ixSettleBatch, ixClaimUsdBatch, ixClaimSatsBatch, ixClaimTokenBatch,
   ixClaimEpochRewardsBatch, ixClaimOneBtcRewardsBatch, ixCloseOneBtcTicketsBatch,
   ixDeployBatch, ixBuyEpochTicketsBatch, ixBuyOneBtcTicketsBatch,
-  SATRUSH_PROGRAM, USDC_MINT, CBBTC_MINT, TOKEN_PROGRAM, ATA_PROGRAM, SYSTEM_PROGRAM,
+  SATRUSH_PROGRAM, USDC_MINT, CBBTC_MINT, RUSH_MINT,
+  TOKEN_PROGRAM, ATA_PROGRAM, SYSTEM_PROGRAM,
   USER_FLAG,
 } from '../index.js';
 
@@ -31,7 +32,8 @@ client.idl.programAddress = rawIdl.address;
 // Distinct, well-formed addresses; system-ish keys are fine as stand-ins.
 const A = rawIdl.address;
 const K = [
-  SATRUSH_PROGRAM, USDC_MINT, CBBTC_MINT, TOKEN_PROGRAM, ATA_PROGRAM, SYSTEM_PROGRAM,
+  SATRUSH_PROGRAM, USDC_MINT, CBBTC_MINT, RUSH_MINT,
+  TOKEN_PROGRAM, ATA_PROGRAM, SYSTEM_PROGRAM,
   'ComputeBudget111111111111111111111111111111', 'AddressLookupTab1e1111111111111111111111111',
   'SysvarRent111111111111111111111111111111111', 'SysvarC1ock11111111111111111111111111111111',
 ];
@@ -60,6 +62,7 @@ const settings = {
 const shard = (i) => ({
   manager: K[i % K.length], deployer: K[(i + 1) % K.length], wkAuth: K[(i + 2) % K.length],
   miner: K[(i + 3) % K.length], usdAta: K[(i + 4) % K.length], btcAta: K[(i + 5) % K.length],
+  rushAta: K[(i + 6) % K.length],
   usdMint: USDC_MINT, ticket: K[(i + 6) % K.length], page: K[(i + 7) % K.length],
   entry: K[(i + 8) % K.length], pd: K[(i + 9) % K.length], automation: K[i % K.length],
   automationAta: K[(i + 1) % K.length], publicDeployment: K[(i + 2) % K.length],
@@ -70,9 +73,11 @@ const shard = (i) => ({
 
 const sr = {
   satrushConfig: K[0], board: K[1], boardUsdAta: K[2], boardBtcAta: K[3],
-  satsVault: K[4], satsVaultBtcAta: K[5], epochVault: K[6], epochVaultUsdAta: K[7],
-  epochVaultBtcAta: K[8], oneBtcVault: K[9], oneBtcVaultBtcAta: K[0],
-  eventAuthority: K[1], usdMint: USDC_MINT, btcMint: CBBTC_MINT, satrushProgram: SATRUSH_PROGRAM,
+  satsVault: K[4], satsVaultBtcAta: K[5], tokenVault: K[6], tokenVaultRushAta: K[7],
+  epochVault: K[8], epochVaultUsdAta: K[9], epochVaultBtcAta: K[10],
+  oneBtcVault: K[0], oneBtcVaultBtcAta: K[1],
+  eventAuthority: K[2], usdMint: USDC_MINT, btcMint: CBBTC_MINT, rushMint: RUSH_MINT,
+  satrushProgram: SATRUSH_PROGRAM,
 };
 
 const idlAccountCount = (name) => rawIdl.instructions.find((i) => i.name === name).accounts.length;
@@ -166,14 +171,14 @@ test('claim_usd batch: vec of auth_ids plus 4 extra accounts per shard', () => {
   assert.ok(ix.accounts.slice(1).every((a) => a.role !== ROLE.WRITABLE_SIGNER));
 });
 
-test('claim_sats batch: 4 extras per shard, btc side', () => {
+test('claim_sats batch: 5 extras per shard, cbBTC and RUSH sides', () => {
   const shards = [shard(0), shard(1)];
   const ix = ixClaimSatsBatch(client, sr, { payer: K[0], config: K[1] }, shards);
-  verify(ix, 'wk_claim_sats_batch', { extraPerShard: 4, shardCount: 2 });
+  verify(ix, 'wk_claim_sats_batch', { extraPerShard: 5, shardCount: 2 });
 });
 
 // =====================================================================================
-// claim_sats takes FOUR OR FIVE accounts per user, and the IDL cannot say so: it describes a
+// claim_sats takes FIVE OR SIX accounts per user, and the IDL cannot say so: it describes a
 // fixed account list, and this is a repeating run appended after it. Get the stride wrong and
 // nothing fails at encode time — the program either refuses the whole batch, or reads the run
 // as a different number of users. Both shapes are therefore pinned here, and their ORDER is
@@ -183,23 +188,22 @@ test('claim_sats batch: 4 extras per shard, btc side', () => {
 const claimSatsShape = () =>
   abiConstants.whiteknight.remainingAccounts.wk_claim_sats_batch;
 
-test('withDeployer appends a fifth account per user, and only then', () => {
+test('withDeployer appends a sixth account per user, and only then', () => {
   const shards = [shard(0), shard(1), shard(2)];
-  const four = ixClaimSatsBatch(client, sr, { payer: K[0], config: K[1] }, shards);
-  const five = ixClaimSatsBatch(client, sr, { payer: K[0], config: K[1], withDeployer: true }, shards);
+  const five = ixClaimSatsBatch(client, sr, { payer: K[0], config: K[1] }, shards);
+  const six = ixClaimSatsBatch(client, sr, { payer: K[0], config: K[1], withDeployer: true }, shards);
 
-  verify(four, 'wk_claim_sats_batch', { extraPerShard: 4, shardCount: 3 });
   verify(five, 'wk_claim_sats_batch', { extraPerShard: 5, shardCount: 3 });
+  verify(six, 'wk_claim_sats_batch', { extraPerShard: 6, shardCount: 3 });
 
   // Both widths must be ones the program actually accepts.
   const { perUser } = claimSatsShape();
   const fixed = idlAccountCount('wk_claim_sats_batch');
-  assert.ok(perUser.includes((four.accounts.length - fixed) / 3), 'four-per-user is a published width');
   assert.ok(perUser.includes((five.accounts.length - fixed) / 3), 'five-per-user is a published width');
+  assert.ok(perUser.includes((six.accounts.length - fixed) / 3), 'six-per-user is a published width');
 
-  // The default must stay four: claim_usd and claim_sats share one measured batch width, so a
-  // silently-five default would cost a user per transaction on every fleet that upgraded.
-  assert.equal(four.accounts.length, fixed + 4 * 3, 'the default shape is unchanged');
+  // Five is the smallest v2 shape: the new RUSH ATA is mandatory, while Deployer stays optional.
+  assert.equal(five.accounts.length, fixed + 5 * 3, 'the default is the smallest valid v2 shape');
 });
 
 test('the appended run is in the order the ABI publishes, not the order this file assumes', () => {
@@ -210,7 +214,7 @@ test('the appended run is in the order the ABI publishes, not the order this fil
   // rather than silently producing a well-formed batch with the accounts transposed.
   const byAbiName = {
     manager: s0.manager, wk_auth: s0.wkAuth, miner: s0.miner,
-    btc_ata: s0.btcAta, deployer: s0.deployer,
+    btc_ata: s0.btcAta, token_ata: s0.rushAta, deployer: s0.deployer,
   };
   assert.deepEqual(
     Object.keys(byAbiName), order,
@@ -226,7 +230,7 @@ test('the appended run is in the order the ABI publishes, not the order this fil
 });
 
 test('withDeployer names the shard that is missing one, instead of building a broken batch', () => {
-  // A shard with no deployer would contribute four accounts where five were counted, so the
+  // A shard with no deployer would contribute five accounts where six were counted, so the
   // program reads the NEXT user's manager as this one's Deployer. That surfaces as BadPda or
   // BadRemainingAccounts, neither of which says which shard was malformed.
   const shards = [shard(0), { ...shard(1), deployer: undefined }];
@@ -235,8 +239,29 @@ test('withDeployer names the shard that is missing one, instead of building a br
     /authId 1 has none/,
     'the error must identify the offending shard',
   );
-  // ...and the same shard is fine in the four-account shape, which never needed the field.
+  // ...and the same shard is fine in the five-account shape, which never needed the field.
   assert.doesNotThrow(() => ixClaimSatsBatch(client, sr, { payer: K[0], config: K[1] }, shards));
+});
+
+test('claim_token batch encodes the v2 RUSH redemption and exact five-account run', () => {
+  const shards = [shard(0), shard(1)];
+  const ix = ixClaimTokenBatch(client, sr, { payer: K[0], config: K[1] }, shards);
+  verify(ix, 'wk_claim_token_batch', { extraPerShard: 5, shardCount: 2 });
+
+  const order = abiConstants.whiteknight.remainingAccounts.wk_claim_token_batch.order;
+  const s0 = shards[0];
+  const byAbiName = {
+    manager: s0.manager,
+    wk_auth: s0.wkAuth,
+    miner: s0.miner,
+    token_ata: s0.rushAta,
+    btc_ata: s0.btcAta,
+  };
+  assert.deepEqual(Object.keys(byAbiName), order);
+  const run = ix.accounts.slice(idlAccountCount('wk_claim_token_batch'));
+  for (const [i, name] of order.entries()) {
+    assert.equal(String(run[i].address), String(byAbiName[name]), `position ${i} must be ${name}`);
+  }
 });
 
 test('epoch rewards batch: iteration_id u32 leads the args', () => {
@@ -289,6 +314,9 @@ test('settle batch: 6 extras per entry in the program walk order', () => {
     String(entries[0].manager), String(entries[0].wkAuth), String(entries[0].pd),
     String(entries[0].miner), String(entries[0].automation), String(entries[0].automationAta),
   ]);
+  const names = rawIdl.instructions.find((i) => i.name === 'wk_settle_batch').accounts;
+  const satrushProgramIndex = names.findIndex((a) => a.name === 'satrush_program');
+  assert.equal(ix.accounts[satrushProgramIndex].role, ROLE.WRITABLE);
 });
 
 // ---------------------------------------------------------------- operator batches

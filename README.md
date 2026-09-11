@@ -5,7 +5,7 @@ Everything a **user** or an **operator** needs to talk to the program directly: 
 account decoders, chain readers, and a builder for every public instruction, encoded from the
 pinned ABI at runtime.
 
-> **Status: live on mainnet since 2026-08-15.** `createClient({ cluster: 'mainnet' })`
+> **Status: live on mainnet; Sat Rush v2 upgrade finalized 2026-09-11.** `createClient({ cluster: 'mainnet' })`
 > resolves **`WKhLkiPw8dSMoV1n81Mxyo61Eu3rH9CKtQTnLjGv4BS`** from the pinned ABI's address
 > book. (The fail-loud rule still stands: if the ABI ever said `null` for a cluster, the
 > client would throw rather than fall back — nothing here encodes against a program that is
@@ -37,9 +37,9 @@ hash). `npm install --ignore-scripts` works — nothing needs a lifecycle script
 ```js
 import {
   createClient, derivePosition, deriveShard, resolveSatrushAccounts,
-  readConfig, readManagers, readDeployer, readClaimable, readAtaBalances,
+  readConfig, readManagers, readDeployer, readClaimable, readAtaBalances, readTokenVault,
   ixCreateManager, ixCreateDeployer, ixDepositBalance, ixWithdrawBalance, ixWithdrawTokens,
-  ixClaimUsdBatch, ixClaimSatsBatch,
+  ixClaimUsdBatch, ixClaimSatsBatch, ixClaimTokenBatch,
   compileForWallet, ataFor,
 } from '@whiteknight-solana/sdk';
 
@@ -71,6 +71,9 @@ const owed = await readClaimable(client, [shard0]);
 if (owed.unclaimedUsd > 0n) {
   const ix = ixClaimUsdBatch(client, sr, { payer: anySigner, config: pos.config }, owed.withMiner);
 }
+if (owed.tokenShares > 0n) {
+  const ix = ixClaimTokenBatch(client, sr, { payer: anySigner, config: pos.config }, owed.withMiner);
+}
 ```
 
 ## The instruction surface
@@ -78,15 +81,15 @@ if (owed.unclaimedUsd > 0n) {
 | Who signs | Builders |
 | --- | --- |
 | **User** (position owner) | `ixCreateManager` `ixCreateDeployer` `ixUpdateDeployer` `ixTransferManager` `ixDepositBalance` `ixWithdrawBalance` `ixWithdrawTokens` `ixCloseShard` |
-| **Anyone** (permissionless, value flows to users) | `ixSettleBatch` `ixClaimUsdBatch` `ixClaimSatsBatch` `ixClaimEpochRewardsBatch` `ixClaimOneBtcRewardsBatch` `ixCloseOneBtcTicketsBatch` |
+| **Anyone** (permissionless, value flows to users) | `ixSettleBatch` `ixClaimUsdBatch` `ixClaimSatsBatch` `ixClaimTokenBatch` `ixClaimEpochRewardsBatch` `ixClaimOneBtcRewardsBatch` `ixCloseOneBtcTicketsBatch` |
 | **Operator** (per-user `deploy_authority`) | `ixDeployBatch` `ixBuyEpochTicketsBatch` `ixBuyOneBtcTicketsBatch` |
 
 Admin instructions are deliberately not wrapped; `test/surface.test.mjs` pins the partition so
 a new program instruction must be consciously placed.
 
-Two withdraw verbs because winnings arrive in two tokens: `ixWithdrawBalance` sweeps USDC,
-`ixWithdrawTokens` sweeps any mint — the sats cash-back, epoch prizes and the 1 BTC jackpot
-all pay cbBTC. `amount: 0n` means "everything".
+Two withdraw verbs cover three tokens: `ixWithdrawBalance` sweeps USDC, while
+`ixWithdrawTokens` sweeps any mint — cbBTC winnings or Sat Rush v2 RUSH. `amount: 0n` means
+"everything".
 
 ## What the SDK will never do
 

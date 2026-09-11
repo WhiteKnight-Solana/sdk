@@ -11,6 +11,7 @@ const mainnet = addresses.clusters.mainnet;
 export const SATRUSH_PROGRAM = address(mainnet.satrushProgram);
 export const USDC_MINT = address(mainnet.usdcMint);
 export const CBBTC_MINT = address(mainnet.cbbtcMint);
+export const RUSH_MINT = address(mainnet.rushMint);
 export const TOKEN_PROGRAM = address(mainnet.tokenProgram);
 export const ATA_PROGRAM = address(mainnet.associatedTokenProgram);
 export const SYSTEM_PROGRAM = address(mainnet.systemProgram);
@@ -48,18 +49,17 @@ export const FLAG = Object.freeze(
  * them. 0 is always the pre-existing behaviour, which is why the field could be carved into
  * live accounts without a migration.
  *
- *   PAUSE_MINING     stops deploys ONLY. Settles, both claims, prize collection and
+ *   PAUSE_MINING     stops deploys ONLY. Settles, all claims, prize collection and
  *                    withdrawals keep running — a pause is not a way to strand money the
  *                    protocol owes the user. It does cost the streak.
  *   HOLD_VAULT_BUYS  stops BOTH ticket legs, so earned hashrate banks on the Miner and the
  *                    user picks which iteration to release it into. Does not stop claim_sats.
- *   HOLD_SATS        stops claim_sats, so the position keeps its SatsVault shares and earns
- *                    the 10% fee every OTHER claimer pays. The cost is not that fee: claim_sats
- *                    is the ONLY thing that releases locked hashrate, and the release is
- *                    strictly proportional to the burn, so holding freezes 35% of everything
- *                    mined, earning nothing. Enforced only when the caller passes the position's
- *                    Deployer as a fifth remaining account (see `ixClaimSatsBatch`); a
- *                    four-account caller cannot see the flag and claims regardless.
+ *   HOLD_SATS        tells automation to keep SatsVault shares. The program can enforce it on
+ *                    `claim_sats` only when the Deployer is passed as the sixth remaining
+ *                    account; a five-account caller cannot see the flag. Sat Rush v2's token
+ *                    claim can also settle a coupled cbBTC/hashrate leg and has no Deployer in
+ *                    its WhiteKnight wrapper, so operators must filter held positions out of
+ *                    BOTH automatic claim builders with `areSatsHeld`.
  */
 export const USER_FLAG = Object.freeze(
   Object.fromEntries(

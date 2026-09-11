@@ -4,7 +4,7 @@ import { createSolanaRpc, address } from '@solana/kit';
 import { idl as IDL, addresses } from '@whiteknight-solana/abi';
 import { indexIdl } from './idl.js';
 import { wkPdas, satrushPdas, ataFor } from './pdas.js';
-import { USDC_MINT, CBBTC_MINT } from './constants.js';
+import { USDC_MINT, CBBTC_MINT, RUSH_MINT } from './constants.js';
 
 /**
  * Create a client: the indexed IDL, an RPC, and the program address for one cluster.
@@ -51,32 +51,40 @@ export async function derivePosition(client, { authority, index = 0, authId = 0 
 }
 
 /**
- * Everything one shard's money paths need: the shard PDA, both of its token accounts, and the
- * Sat Rush Miner that holds what it is owed. Mints default to the live USDC/cbBTC pair; pass
- * the pair from `readConfig` when targeting a non-standard deployment.
+ * Everything one shard's money paths need: the shard PDA, its USDC/cbBTC/RUSH token accounts,
+ * and the Sat Rush Miner that holds what it is owed. Mints default to the live mainnet set;
+ * pass explicit values when targeting a non-standard deployment.
  */
-export async function deriveShard(client, { manager, authId, usdMint = USDC_MINT, btcMint = CBBTC_MINT }) {
+export async function deriveShard(
+  client,
+  { manager, authId, usdMint = USDC_MINT, btcMint = CBBTC_MINT, rushMint = RUSH_MINT },
+) {
   const wkAuth = await wkPdas.auth(client.programAddress, manager, authId);
   const usdAta = await ataFor(wkAuth, usdMint);
   const btcAta = await ataFor(wkAuth, btcMint);
+  const rushAta = await ataFor(wkAuth, rushMint);
   return {
     authId: BigInt(authId),
     manager,
     wkAuth,
     usdAta,
     btcAta,
+    rushAta,
     miner: await satrushPdas.miner(wkAuth),
   };
 }
 
 /**
  * The Sat Rush accounts the batch instructions need, derived once and reused. Pure derivation —
- * no RPC. Mints default to the live pair for the same reason as `deriveShard`.
+ * no RPC. Mints default to the live set for the same reason as `deriveShard`.
  */
-export async function resolveSatrushAccounts({ usdMint = USDC_MINT, btcMint = CBBTC_MINT } = {}) {
+export async function resolveSatrushAccounts(
+  { usdMint = USDC_MINT, btcMint = CBBTC_MINT, rushMint = RUSH_MINT } = {},
+) {
   const satrushConfig = await satrushPdas.config();
   const board = await satrushPdas.board();
   const satsVault = await satrushPdas.satsVault();
+  const tokenVault = await satrushPdas.tokenVault();
   const epochVault = await satrushPdas.epochVault();
   const oneBtcVault = await satrushPdas.oneBtcVault();
   const eventAuthority = await satrushPdas.eventAuthority();
@@ -87,6 +95,8 @@ export async function resolveSatrushAccounts({ usdMint = USDC_MINT, btcMint = CB
     boardBtcAta: await ataFor(board, btcMint),
     satsVault,
     satsVaultBtcAta: await ataFor(satsVault, btcMint),
+    tokenVault,
+    tokenVaultRushAta: await ataFor(tokenVault, rushMint),
     epochVault,
     epochVaultUsdAta: await ataFor(epochVault, usdMint),
     epochVaultBtcAta: await ataFor(epochVault, btcMint),
@@ -95,5 +105,6 @@ export async function resolveSatrushAccounts({ usdMint = USDC_MINT, btcMint = CB
     eventAuthority,
     usdMint,
     btcMint,
+    rushMint,
   };
 }

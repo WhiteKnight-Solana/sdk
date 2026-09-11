@@ -128,11 +128,10 @@ export function areVaultBuysHeld(deployer) {
 /**
  * Has its owner held the sats cash-back, keeping SatsVault shares instead of realising them?
  *
- * Worth reading before building a claim batch, but the consequence is the opposite of the other
- * two switches: a held position is skipped ONLY if you pass its Deployer as a fifth remaining
- * account. A four-account batch claims for a holder and succeeds, because the program never
- * receives the account the flag lives on. So this is the read that lets a caller honour the
- * switch itself — it is not a prediction that the transaction would fail.
+ * Worth reading before building either Sat Rush v2 vault-claim batch. `claim_sats` skips a held
+ * position ONLY if you pass its Deployer as a sixth remaining account; the five-account form
+ * cannot see the flag. `claim_token` has no Deployer account and may settle a coupled cbBTC leg,
+ * so an operator honours the standing instruction by filtering held positions out itself.
  *
  * The owner is never held by their own switch: a claim signed by `deployer.authority` proceeds
  * whatever this returns, which is the force-sweep.
@@ -179,6 +178,9 @@ export function decodeMiner(d) {
     streak: r.u32(),
     lastMinedRoundId: r.u32(),
     unclaimedHashrate: r.u64(),
+    // Sat Rush v2 appended token-vault shares at byte offset 131. The strict 201-byte size
+    // check above is what makes seeking over the intervening legacy/reserved bytes safe.
+    unclaimedTokenShares: r.seek(131).u64(),
   };
 }
 
@@ -212,6 +214,17 @@ export function decodeSatsVault(d) {
   const btcShares = r.u64();
   // The virtual offset is Sat Rush's own — copied exactly, or a share is misvalued.
   return { btcAmount, btcShares, toSats: (sh) => (sh * (btcAmount + 1n)) / (btcShares + 1000n) };
+}
+
+export function decodeTokenVault(d) {
+  const r = check(d, 'TokenVault').seek(11);
+  const tokenAmount = r.u64();
+  const tokenShares = r.u64();
+  return {
+    tokenAmount,
+    tokenShares,
+    toTokens: (shares) => (shares * (tokenAmount + 1n)) / (tokenShares + 1000n),
+  };
 }
 
 export function decodeEpochVault(d) {
@@ -320,5 +333,7 @@ export function decodeSatrushConfig(d) {
     epochVaultIterationDuration: r.u64(),
     deploymentSettleGraceDuration: r.u64(),
     strikeTriggerModulus: r.u16(),
+    buybacksFeeBps: r.u32(),
+    tokenMint: r.pubkey(),
   };
 }

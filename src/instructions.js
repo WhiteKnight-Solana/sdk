@@ -218,6 +218,7 @@ export function ixSettleBatch(client, sr, { payer, config, round, rentRecipient,
       round: { address: round, role: ROLE.WRITABLE },
       board: sr.board,
       sats_vault: { address: sr.satsVault, role: ROLE.WRITABLE },
+      token_vault: { address: sr.tokenVault, role: ROLE.WRITABLE },
       board_usd_ata: { address: sr.boardUsdAta, role: ROLE.WRITABLE },
       board_btc_ata: { address: sr.boardBtcAta, role: ROLE.WRITABLE },
       sats_vault_btc_ata: { address: sr.satsVaultBtcAta, role: ROLE.WRITABLE },
@@ -265,19 +266,19 @@ export function ixClaimUsdBatch(client, sr, { payer, config }, shards) {
  * hashrate one pass releases is `param::CLAIM_SATS_TICKETS` on the config (0 = everything),
  * read by the program — no caller-supplied size exists. Claiming burns shares at a 10% fee.
  *
- * FOUR OR FIVE ACCOUNTS PER USER, and `withDeployer` is the choice. Four is the default and is
- * what this function has always sent; five appends each position's Deployer, which is the
+ * FIVE OR SIX ACCOUNTS PER USER, and `withDeployer` is the choice. Five is the default and
+ * includes Sat Rush v2's required RUSH destination; six appends each position's Deployer, the
  * account carrying `user_flags`, and is the only way the program can see `HOLD_SATS` at all.
  *
  * The default is four deliberately, and not merely for compatibility. `claim_usd` and
- * `claim_sats` share one measured batch width, so a fifth account costs a whole user per
+ * `claim_sats` share one measured batch width, so a sixth account costs a whole user per
  * transaction — a permanent rise in claim traffic for every position, to serve a switch most
  * will not set. An operator is usually better off reading `areSatsHeld` and leaving holders
  * out of the batch, which costs nothing and needs no extra account.
  *
  * Pass `withDeployer: true` when you want the PROGRAM to enforce the hold rather than trusting
  * your own filter — defence against your own bugs, at one account per user. Note it is not a
- * guarantee anyone else honours: `claim_sats` is open to any signer by design, so a four-account
+ * guarantee anyone else honours: `claim_sats` is open to any signer by design, so a five-account
  * caller can always claim for a holder, and the switch is a standing instruction to whoever
  * automates for you rather than a lock against the world.
  *
@@ -286,7 +287,13 @@ export function ixClaimUsdBatch(client, sr, { payer, config }, shards) {
  */
 export function ixClaimSatsBatch(client, sr, { payer, config, withDeployer = false }, shards) {
   const extra = shards.flatMap((s) => {
-    const run = [readonly(s.manager), writable(s.wkAuth), writable(s.miner), writable(s.btcAta)];
+    const run = [
+      readonly(s.manager),
+      writable(s.wkAuth),
+      writable(s.miner),
+      writable(s.btcAta),
+      writable(s.rushAta),
+    ];
     if (!withDeployer) return run;
     // Without this the run silently comes up one short for that user and the program reads the
     // NEXT user's manager as this one's Deployer — a length mismatch that fails as
@@ -307,8 +314,51 @@ export function ixClaimSatsBatch(client, sr, { payer, config, withDeployer = fal
       crank: signer(payer),
       config,
       btc_mint: sr.btcMint,
+      token_mint: sr.rushMint,
       satrush_config: sr.satrushConfig,
       sats_vault: sr.satsVault,
+      token_vault: sr.tokenVault,
+      sats_vault_btc_ata: sr.satsVaultBtcAta,
+      token_vault_token_ata: sr.tokenVaultRushAta,
+      event_authority: sr.eventAuthority,
+      satrush_program: srProgram(sr),
+      token_program: TOKEN_PROGRAM,
+      associated_token_program: ATA_PROGRAM,
+      system_program: SYSTEM_PROGRAM,
+    },
+    { auth_ids: shards.map((s) => BigInt(s.authId)) },
+    extra,
+  );
+}
+
+/**
+ * `wk_claim_token_batch(auth_ids)` — redeem each shard's Sat Rush v2 token-vault shares into
+ * RUSH. The Miner authority is the `wk_auth` PDA, so a wallet cannot call Sat Rush directly;
+ * this permissionless wrapper provides that signature and can only pay into the shard's own
+ * RUSH/cbBTC ATAs. Sat Rush may settle a coupled cbBTC/hashrate leg in the same call. This
+ * instruction has no Deployer account, so automation must filter `areSatsHeld(deployer)` itself;
+ * an owner may still deliberately force the claim.
+ */
+export function ixClaimTokenBatch(client, sr, { payer, config }, shards) {
+  const extra = shards.flatMap((s) => [
+    readonly(s.manager),
+    writable(s.wkAuth),
+    writable(s.miner),
+    writable(s.rushAta),
+    writable(s.btcAta),
+  ]);
+  return buildIx(
+    client.idl,
+    'wk_claim_token_batch',
+    {
+      crank: signer(payer),
+      config,
+      token_mint: sr.rushMint,
+      btc_mint: sr.btcMint,
+      satrush_config: sr.satrushConfig,
+      token_vault: sr.tokenVault,
+      sats_vault: sr.satsVault,
+      token_vault_token_ata: sr.tokenVaultRushAta,
       sats_vault_btc_ata: sr.satsVaultBtcAta,
       event_authority: sr.eventAuthority,
       satrush_program: srProgram(sr),

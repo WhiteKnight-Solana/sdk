@@ -24,6 +24,7 @@ export const ABI_IDL_SHA256: string;
 export const SATRUSH_PROGRAM: Address;
 export const USDC_MINT: Address;
 export const CBBTC_MINT: Address;
+export const RUSH_MINT: Address;
 export const TOKEN_PROGRAM: Address;
 export const ATA_PROGRAM: Address;
 export const SYSTEM_PROGRAM: Address;
@@ -43,10 +44,10 @@ export const FLAG: Readonly<Record<string, bigint>>;
  *   PAUSE_MINING     stops deploys only; settles, claims, prizes and withdrawals continue.
  *   HOLD_VAULT_BUYS  stops both ticket legs so hashrate banks on the Miner; claim_sats
  *                    keeps running, because that is money owed to the user.
- *   HOLD_SATS        stops claim_sats, so shares stay in the SatsVault earning the 10% fee
- *                    other claimers pay. It also freezes the 35% locked hashrate, which only
- *                    claim_sats releases. Enforced only when the Deployer is passed as a fifth
- *                    remaining account — see `ixClaimSatsBatch`.
+ *   HOLD_SATS        tells automation to keep SatsVault shares. On-chain `claim_sats`
+ *                    enforcement requires the Deployer as the sixth remaining account.
+ *                    Sat Rush v2 token claims can settle a coupled cbBTC/hashrate leg, so
+ *                    operators must also filter held positions out of `ixClaimTokenBatch`.
  */
 export const USER_FLAG: Readonly<Record<string, bigint>>;
 /** Every bit the program accepts. A mask touching anything else is refused (BadSetting). */
@@ -128,6 +129,7 @@ export const satrushPdas: {
   config(p?: Addr): Promise<Address>;
   board(p?: Addr): Promise<Address>;
   satsVault(p?: Addr): Promise<Address>;
+  tokenVault(p?: Addr): Promise<Address>;
   epochVault(p?: Addr): Promise<Address>;
   oneBtcVault(p?: Addr): Promise<Address>;
   treasury(p?: Addr): Promise<Address>;
@@ -172,6 +174,7 @@ export interface DeployerState {
 export interface MinerState {
   authority: Address; unclaimedUsd: bigint; unclaimedBtcShares: bigint; hashrate: bigint;
   streak: number; lastMinedRoundId: number; unclaimedHashrate: bigint;
+  unclaimedTokenShares: bigint;
 }
 export function decodeWkConfig(d: Uint8Array): WkConfigState;
 export function decodeManager(d: Uint8Array): ManagerState;
@@ -186,10 +189,9 @@ export function areVaultBuysHeld(deployer: DeployerState): boolean;
 /**
  * Has the owner held the sats cash-back, keeping SatsVault shares instead of realising them?
  *
- * Unlike the other two switches this does NOT predict a refusal: a four-account claim batch
- * claims for a holder and succeeds, because the program never receives the account the flag
- * lives on. Read it to honour the switch yourself, or pass `withDeployer` and let the program
- * enforce it.
+ * `claim_sats` enforces it only in the six-account form with `withDeployer`. `claim_token` has
+ * no Deployer account and may settle a coupled cbBTC leg, so operators must filter held
+ * positions out of that builder themselves.
  */
 export function areSatsHeld(deployer: DeployerState): boolean;
 /**
@@ -213,6 +215,9 @@ export function decodeRound(d: Uint8Array): {
 };
 export function decodeSatsVault(d: Uint8Array): {
   btcAmount: bigint; btcShares: bigint; toSats(shares: bigint): bigint;
+};
+export function decodeTokenVault(d: Uint8Array): {
+  tokenAmount: bigint; tokenShares: bigint; toTokens(shares: bigint): bigint;
 };
 export function decodeEpochVault(d: Uint8Array): {
   iterationId: number; lastTriggerSlot: bigint; pendingUsd: bigint; poolUsd: bigint;
@@ -246,6 +251,7 @@ export function decodeSatrushConfig(d: Uint8Array): {
   satsVaultClaimFeeBps: number; protocolFeeBps: number; unclaimedHashrateBps: number;
   minDeployUsdAmount: bigint; epochVaultIterationDuration: bigint;
   deploymentSettleGraceDuration: bigint; strikeTriggerModulus: number;
+  buybacksFeeBps: number; tokenMint: Address;
 };
 
 // ---------------------------------------------------------------- math
@@ -273,19 +279,23 @@ export function derivePosition(client: WkClient, args: {
   authority: Addr; index?: number; authId?: number | bigint;
 }): Promise<{ config: Address; manager: Address; deployer: Address; wkAuth: Address }>;
 export interface ShardAccounts {
-  authId: bigint; manager: Addr; wkAuth: Address; usdAta: Address; btcAta: Address; miner: Address;
+  authId: bigint; manager: Addr; wkAuth: Address; usdAta: Address; btcAta: Address;
+  rushAta: Address; miner: Address;
 }
 export function deriveShard(client: WkClient, args: {
-  manager: Addr; authId: number | bigint; usdMint?: Addr; btcMint?: Addr;
+  manager: Addr; authId: number | bigint; usdMint?: Addr; btcMint?: Addr; rushMint?: Addr;
 }): Promise<ShardAccounts>;
 export interface SatrushAccounts {
   satrushConfig: Address; board: Address; boardUsdAta: Address; boardBtcAta: Address;
   satsVault: Address; satsVaultBtcAta: Address;
+  tokenVault: Address; tokenVaultRushAta: Address;
   epochVault: Address; epochVaultUsdAta: Address; epochVaultBtcAta: Address;
   oneBtcVault: Address; oneBtcVaultBtcAta: Address;
-  eventAuthority: Address; usdMint: Addr; btcMint: Addr; satrushProgram?: Addr;
+  eventAuthority: Address; usdMint: Addr; btcMint: Addr; rushMint: Addr; satrushProgram?: Addr;
 }
-export function resolveSatrushAccounts(args?: { usdMint?: Addr; btcMint?: Addr }): Promise<SatrushAccounts>;
+export function resolveSatrushAccounts(args?: {
+  usdMint?: Addr; btcMint?: Addr; rushMint?: Addr;
+}): Promise<SatrushAccounts>;
 
 // ---------------------------------------------------------------- instructions
 export interface DeployerSettings {
@@ -346,10 +356,10 @@ export function ixClaimUsdBatch(client: WkClient, sr: SatrushAccounts, opts: {
   payer: Addr; config: Addr;
 }, shards: Array<{ manager: Addr; wkAuth: Addr; miner: Addr; usdAta: Addr; authId: number | bigint }>): WkInstruction;
 /**
- * Four or five accounts per user; `withDeployer` chooses. Five appends each position's
+ * Five or six accounts per user; `withDeployer` chooses. Six appends each position's
  * Deployer, the account carrying `user_flags`, and is the only way the program can see
- * `HOLD_SATS`. The default stays four: claim_usd and claim_sats share one measured batch
- * width, so a fifth account costs a whole user per transaction.
+ * `HOLD_SATS`. The default is five because Sat Rush v2 requires a RUSH destination ATA;
+ * the optional sixth account costs a whole user per transaction at the account-lock limit.
  *
  * With `withDeployer: true` every shard must carry `deployer` or the call throws.
  * When `payer` is the position's own authority the hold is ignored — that is the force-sweep.
@@ -357,7 +367,17 @@ export function ixClaimUsdBatch(client: WkClient, sr: SatrushAccounts, opts: {
 export function ixClaimSatsBatch(client: WkClient, sr: SatrushAccounts, opts: {
   payer: Addr; config: Addr; withDeployer?: boolean;
 }, shards: Array<{
-  manager: Addr; wkAuth: Addr; miner: Addr; btcAta: Addr; deployer?: Addr;
+  manager: Addr; wkAuth: Addr; miner: Addr; btcAta: Addr; rushAta: Addr; deployer?: Addr;
+  authId: number | bigint;
+}>): WkInstruction;
+/**
+ * Redeem Sat Rush v2 token-vault shares into the shard's RUSH ATA. May also settle a coupled
+ * cbBTC/hashrate leg; automation should omit positions for which `areSatsHeld` is true.
+ */
+export function ixClaimTokenBatch(client: WkClient, sr: SatrushAccounts, opts: {
+  payer: Addr; config: Addr;
+}, shards: Array<{
+  manager: Addr; wkAuth: Addr; miner: Addr; rushAta: Addr; btcAta: Addr;
   authId: number | bigint;
 }>): WkInstruction;
 export function ixClaimEpochRewardsBatch(client: WkClient, sr: SatrushAccounts, opts: {
@@ -406,10 +426,11 @@ export function readManagers(client: WkClient, authority: Addr): Promise<Array<{
 export function readDeployer(client: WkClient, deployerPda: Addr): Promise<DeployerState | null>;
 export function readAtaBalances(client: WkClient, atas: Addr[]): Promise<bigint[]>;
 export function readClaimable(client: WkClient, shards: ShardAccounts[]): Promise<{
-  unclaimedUsd: bigint; lockedHashrate: bigint; btcShares: bigint;
+  unclaimedUsd: bigint; lockedHashrate: bigint; btcShares: bigint; tokenShares: bigint;
   withMiner: Array<ShardAccounts & { minerState: MinerState }>;
 }>;
 export function readSatsVault(client: WkClient): Promise<ReturnType<typeof decodeSatsVault> | null>;
+export function readTokenVault(client: WkClient): Promise<ReturnType<typeof decodeTokenVault> | null>;
 export function readBtcRate(client: WkClient): Promise<{
   rate: bigint; roundId: number; strikeUsd: bigint; strikeBtc: bigint;
   satsBps: bigint; potBps: bigint; refUsd: bigint; refBtc: bigint;

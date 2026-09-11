@@ -9,14 +9,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   Writer, decodeWkConfig, decodeManager, decodeDeployer, decodeMiner, decodeSatsVault,
-  decodeEpochVaultIteration, decodeOneBtcVaultEntry,
+  decodeTokenVault, decodeSatrushConfig, decodeEpochVaultIteration, decodeOneBtcVaultEntry,
   WK_CONFIG_LEN, MANAGER_LEN, DEPLOYER_LEN, SIZES, PARAM_COUNT, FLAG, TILE_COUNT,
   USER_FLAG, USER_FLAGS_KNOWN, USER_FLAGS_OFFSET, isMiningPaused, areVaultBuysHeld, areSatsHeld,
-  SATRUSH_PROGRAM, USDC_MINT, CBBTC_MINT, TOKEN_PROGRAM, ATA_PROGRAM, SYSTEM_PROGRAM,
+  SATRUSH_PROGRAM, USDC_MINT, CBBTC_MINT, RUSH_MINT,
+  TOKEN_PROGRAM, ATA_PROGRAM, SYSTEM_PROGRAM,
 } from '../index.js';
 
 const PK = [
-  SATRUSH_PROGRAM, USDC_MINT, CBBTC_MINT, TOKEN_PROGRAM, ATA_PROGRAM, SYSTEM_PROGRAM,
+  SATRUSH_PROGRAM, USDC_MINT, CBBTC_MINT, RUSH_MINT,
+  TOKEN_PROGRAM, ATA_PROGRAM, SYSTEM_PROGRAM,
   'ComputeBudget111111111111111111111111111111',
 ];
 
@@ -112,11 +114,13 @@ test('Miner round-trips (the account every claim decision reads)', () => {
     .pubkey(PK[3])
     .u64(12_345).u64(67_890).u64(555_000).u32(42).u32(10_900).u64(31_400);
   const bytes = padded(w, SIZES.Miner);
+  new DataView(bytes.buffer).setBigUint64(131, 24_680n, true);
   const m = decodeMiner(bytes);
   assert.equal(m.unclaimedUsd, 12_345n);
   assert.equal(m.unclaimedBtcShares, 67_890n);
   assert.equal(m.streak, 42);
   assert.equal(m.unclaimedHashrate, 31_400n);
+  assert.equal(m.unclaimedTokenShares, 24_680n);
   assert.throws(() => decodeMiner(new Uint8Array(SIZES.Miner + 3)), /may have changed a layout/);
 });
 
@@ -125,6 +129,24 @@ test('SatsVault share pricing copies the virtual offset exactly', () => {
   const v = decodeSatsVault(padded(w, SIZES.SatsVault));
   // (shares * (btcAmount + 1)) / (btcShares + 1000)
   assert.equal(v.toSats(2_000_000n), (2_000_000n * 1_000_001n) / 2_001_000n);
+});
+
+test('TokenVault share pricing and the v2 config RUSH fields decode at proven offsets', () => {
+  const vault = new Writer().raw(new Uint8Array(8)).u16(1).u8(255)
+    .u64(9_000_000).u64(4_000_000);
+  const v = decodeTokenVault(padded(vault, SIZES.TokenVault));
+  assert.equal(v.tokenAmount, 9_000_000n);
+  assert.equal(v.tokenShares, 4_000_000n);
+  assert.equal(v.toTokens(2_000_000n), (2_000_000n * 9_000_001n) / 4_001_000n);
+
+  const cfg = new Writer().raw(new Uint8Array(8)).u16(2).u8(253);
+  for (let i = 0; i < 6; i++) cfg.pubkey(PK[i]);
+  for (const bps of [100, 200, 300, 400, 1_000, 2_000, 3_500]) cfg.u32(bps);
+  cfg.u64(1_000_000).u64(99_000).u64(5_000).u16(21).u32(600).pubkey(RUSH_MINT);
+  const c = decodeSatrushConfig(padded(cfg, SIZES.SatrushConfig));
+  assert.equal(c.satsVaultClaimFeeBps, 1_000);
+  assert.equal(c.buybacksFeeBps, 600);
+  assert.equal(c.tokenMint, String(RUSH_MINT));
 });
 
 test('EpochVaultIteration decodes the winners table', () => {

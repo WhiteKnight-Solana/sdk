@@ -63,6 +63,7 @@ test('satrush PDAs match their published recipes', async () => {
     [satrushPdas.config(), r.config, {}],
     [satrushPdas.board(), r.board, {}],
     [satrushPdas.satsVault(), r.satsVault, {}],
+    [satrushPdas.tokenVault(), r.tokenVault, {}],
     [satrushPdas.epochVault(), r.epochVault, {}],
     [satrushPdas.oneBtcVault(), r.oneBtcVault, {}],
     [satrushPdas.treasury(), r.treasury, {}],
@@ -86,7 +87,7 @@ test('every published recipe is exercised above — none forgotten', () => {
   // could ship unverified. Counting is enough: names are checked by the derivations passing.
   const count = (seeds) => Object.keys(seeds).filter((k) => !k.startsWith('_')).length;
   assert.equal(count(constants.whiteknight.seeds), 4);
-  assert.equal(count(constants.satrush.seeds), 15);
+  assert.equal(count(constants.satrush.seeds), 16);
 });
 
 test('the associated token address derives under the ATA program', async () => {
