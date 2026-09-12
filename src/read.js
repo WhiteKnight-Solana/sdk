@@ -222,19 +222,34 @@ export async function readFlows(client, wallet, { limit = 200, usdMint } = {}) {
   const sigs = await client.rpc
     .getSignaturesForAddress(wallet, { limit, commitment: 'confirmed' })
     .send();
+  const successful = sigs.filter((s) => !s.err);
+  const txs = new Array(successful.length);
+  let cursor = 0;
+
+  // This walk is the dashboard's slowest read: a busy wallet fills the 200-signature page.
+  // Serial requests took roughly a minute through the production proxy. Four workers cut the
+  // wall time without turning one browser into an unbounded RPC burst, and the fixed output
+  // slots keep the calculation deterministic regardless of response order.
+  const workers = Array.from({ length: Math.min(4, successful.length) }, async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= successful.length) return;
+      txs[index] = await client.rpc
+        .getTransaction(successful[index].signature, {
+          encoding: 'jsonParsed',
+          maxSupportedTransactionVersion: 0,
+          commitment: 'confirmed',
+        })
+        .send();
+    }
+  });
+  await Promise.all(workers);
+
   let deposited = 0n;
   let withdrawn = 0n;
   let seen = 0;
 
-  for (const s of sigs) {
-    if (s.err) continue;
-    const tx = await client.rpc
-      .getTransaction(s.signature, {
-        encoding: 'jsonParsed',
-        maxSupportedTransactionVersion: 0,
-        commitment: 'confirmed',
-      })
-      .send();
+  for (const tx of txs) {
     const keys = tx?.transaction?.message?.accountKeys ?? [];
     const touchedUs = keys.some((k) => String(k.pubkey ?? k) === String(client.programAddress));
     if (!touchedUs) continue;
