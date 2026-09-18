@@ -237,7 +237,12 @@ export async function readFlows(client, wallet, { limit = 200, usdMint } = {}) {
       txs[index] = await client.rpc
         .getTransaction(successful[index].signature, {
           encoding: 'jsonParsed',
-          maxSupportedTransactionVersion: 0,
+          // 255, not 0: transaction v1 (SIMD-0385) activated on mainnet 2026-09-15 and a reader
+          // pinned below a version it is handed gets JSON-RPC error -32015 rather than a partial
+          // answer. Pinning 1 buys time until v2 and then breaks identically, so this asks for
+          // whatever the cluster produces. Safe because the fields read below live in `meta` and
+          // in `accountKeys`, which are identical across legacy, v0 and v1.
+          maxSupportedTransactionVersion: 255,
           commitment: 'confirmed',
         })
         .send();

@@ -65,6 +65,10 @@ const shard = (i) => ({
   rushAta: K[(i + 6) % K.length],
   usdMint: USDC_MINT, ticket: K[(i + 6) % K.length], page: K[(i + 7) % K.length],
   entry: K[(i + 8) % K.length], pd: K[(i + 9) % K.length], automation: K[i % K.length],
+  // The seventh settle account. v2's settle.rs pays the player from the MINER pda's own USD
+  // ATA, so it must be in the walk; the fixture lacked it entirely, which is why this encoded
+  // an undefined address rather than failing on a count.
+  minerUsdAta: K[(i + 10) % K.length],
   automationAta: K[(i + 1) % K.length], publicDeployment: K[(i + 2) % K.length],
   address: K[(i + 3) % K.length], authId: BigInt(i),
   // v2 request fields: the crank names the bet and the tiles / the ticket count.
@@ -300,19 +304,24 @@ test('close tickets batch: 3 extras per ticket, rent flows back writable', () =>
   verify(ix, 'wk_close_one_btc_tickets_batch', { extraPerShard: 3, shardCount: 2 });
 });
 
-test('settle batch: 6 extras per entry in the program walk order', () => {
+test('settle batch: 7 extras per entry in the program walk order', () => {
   const entries = [shard(0)];
   const ix = ixSettleBatch(
     client, sr,
     { payer: K[0], config: K[1], round: K[2], rentRecipient: K[3], roundId: 10_935 },
     entries,
   );
-  verify(ix, 'wk_settle_batch', { extraPerShard: 6, shardCount: 1 });
+  verify(ix, 'wk_settle_batch', { extraPerShard: 7, shardCount: 1 });
   const base = idlAccountCount('wk_settle_batch');
   const tail = ix.accounts.slice(base).map((a) => String(a.address));
   assert.deepEqual(tail, [
     String(entries[0].manager), String(entries[0].wkAuth), String(entries[0].pd),
     String(entries[0].miner), String(entries[0].automation), String(entries[0].automationAta),
+    // SEVEN, not six. settle.rs checks `remaining_accounts.len() == auth_ids.len() * 7` before
+    // it reads anything, so one short fails the whole batch with BadRemainingAccounts for every
+    // user in it. The encoder was fixed on 2026-09-18; this test was left asserting the shape
+    // that caused six days of settling nobody.
+    String(entries[0].minerUsdAta),
   ]);
   const names = rawIdl.instructions.find((i) => i.name === 'wk_settle_batch').accounts;
   const satrushProgramIndex = names.findIndex((a) => a.name === 'satrush_program');
