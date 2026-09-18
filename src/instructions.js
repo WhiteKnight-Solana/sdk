@@ -194,7 +194,13 @@ export function ixCloseShard(client, a, shard) {
 /**
  * `wk_settle_batch(round_id, auth_ids)` — credit the hashrate a settled round earned.
  * Round must be in state Settled. Entries: `{ manager, wkAuth, pd, miner, automation,
- * automationAta, authId }` (pd = the round's publicDeployment; automation = publicAutomation).
+ * automationAta, minerUsdAta, authId }` (pd = the round's publicDeployment; automation =
+ * publicAutomation; minerUsdAta = the ATA owned by the MINER pda, which v2 requires).
+ *
+ * SEVEN accounts per entry. settle.rs checks `remaining_accounts.len() == auth_ids.len() * 7`
+ * before it reads anything, so a layout one short fails the whole batch for everyone in it
+ * with BadRemainingAccounts (6021) — which is exactly what the crank shipped from the v2
+ * upgrade on 2026-09-12 until 2026-09-18, settling nobody for six days.
  */
 export function ixSettleBatch(client, sr, { payer, config, round, rentRecipient, roundId }, entries) {
   const extra = entries.flatMap((s) => [
@@ -204,6 +210,7 @@ export function ixSettleBatch(client, sr, { payer, config, round, rentRecipient,
     writable(s.miner),
     writable(s.automation),
     writable(s.automationAta),
+    writable(s.minerUsdAta),
   ]);
   return buildIx(
     client.idl,
