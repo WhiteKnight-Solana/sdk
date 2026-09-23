@@ -98,3 +98,11 @@ test('the associated token address derives under the ATA program', async () => {
   });
   assert.equal(ata, expected);
 });
+
+test('resolveSatrushAccounts derives the RUSH ATAs mainnet uses for the settle leg', async () => {
+  const { resolveSatrushAccounts } = await import('../index.js');
+  const sr = await resolveSatrushAccounts();
+  // Read off Sat Rush's own keeper settle transactions: the Board's and the TokenVault's RUSH ATAs.
+  assert.equal(String(sr.boardRushAta), '5TXwoXUSh4CurSy421uyGRbwDJadkFSy7nPEbp9sxBwH');
+  assert.equal(String(sr.tokenVaultRushAta), 'G9iBFqhbu3rPCtTEnHzZmn8UDqy3t5d7VLqbnU8faYdT');
+});

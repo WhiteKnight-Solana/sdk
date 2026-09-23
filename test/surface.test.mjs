@@ -21,6 +21,7 @@ const COVERED = {
   deposit_balance: 'ixDepositBalance',
   withdraw_balance: 'ixWithdrawBalance',
   withdraw_tokens: 'ixWithdrawTokens',
+  withdraw_sol: 'ixWithdrawSol',
   close_shard: 'ixCloseShard',
   // permissionless
   wk_settle_batch: 'ixSettleBatch',
@@ -34,6 +35,8 @@ const COVERED = {
   wk_deploy_batch: 'ixDeployBatch',
   wk_buy_epoch_tickets_batch: 'ixBuyEpochTicketsBatch',
   wk_buy_one_btc_tickets_batch: 'ixBuyOneBtcTicketsBatch',
+  // the config's own operator, once
+  sweep_sub_miner_sol: 'ixSweepSubMinerSol',
 };
 
 // Admin surface, deliberately not wrapped: these change the protocol, not a position.

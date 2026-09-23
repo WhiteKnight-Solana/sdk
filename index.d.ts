@@ -150,9 +150,15 @@ export interface WkConfigState {
   admin: Address; pendingAdmin: Address; feeCollector: Address; deployAuthority: Address;
   satrushProgram: Address; usdMint: Address; btcMint: Address;
   flags: bigint; params: bigint[]; bump: number;
+  /** Byte 497: 1 once the one-time sub-miner SOL sweep has finished. */
+  solSweepDone: number;
+  /** Params 17 and 18, the sweep's USDC limit (micros) and idle window (rounds); 0 = unset. */
+  sweepMaxUsdcMicros: bigint; sweepIdleRounds: bigint;
   param(i: number): bigint;
   hasFlag(f: bigint): boolean;
   deployAllowed(): boolean;
+  /** `withdraw_sol` is open for every owner once the sweep has finished. */
+  solWithdrawOpen(): boolean;
 }
 export interface ManagerState {
   authority: Address; seedAuthority: Address; index: number; bump: number;
@@ -287,6 +293,7 @@ export function deriveShard(client: WkClient, args: {
 }): Promise<ShardAccounts>;
 export interface SatrushAccounts {
   satrushConfig: Address; board: Address; boardUsdAta: Address; boardBtcAta: Address;
+  boardRushAta: Address;
   satsVault: Address; satsVaultBtcAta: Address;
   tokenVault: Address; tokenVaultRushAta: Address;
   epochVault: Address; epochVaultUsdAta: Address; epochVaultBtcAta: Address;
@@ -342,15 +349,20 @@ export function ixWithdrawTokens(client: WkClient, a: {
   authority: Addr; config: Addr; manager: Addr; wkAuth: Addr;
   mint: Addr; wkAuthAta: Addr; authorityAta: Addr;
 }, args: { authId: number | bigint; amount?: bigint }): WkInstruction;
+export function ixWithdrawSol(client: WkClient, a: {
+  authority: Addr; config: Addr; manager: Addr; wkAuth: Addr;
+}, args: { authId: number | bigint; amount?: bigint }): WkInstruction;
 export function ixCloseShard(client: WkClient, a: {
   authority: Addr; config: Addr; manager: Addr; usdMint: Addr; btcMint: Addr;
-}, shard: { wkAuth: Addr; usdAta: Addr; btcAta: Addr; miner: Addr; authId: number | bigint }): WkInstruction;
+}, shard: {
+  wkAuth: Addr; usdAta: Addr; btcAta: Addr; rushAta: Addr; miner: Addr; authId: number | bigint;
+}, sr: Pick<SatrushAccounts, 'satrushConfig' | 'rushMint'>): WkInstruction;
 
 export function ixSettleBatch(client: WkClient, sr: SatrushAccounts, opts: {
   payer: Addr; config: Addr; round: Addr; rentRecipient: Addr; roundId: number;
 }, entries: Array<{
   manager: Addr; wkAuth: Addr; pd: Addr; miner: Addr; automation: Addr; automationAta: Addr;
-  authId: number | bigint;
+  minerUsdAta: Addr; authId: number | bigint;
 }>): WkInstruction;
 export function ixClaimUsdBatch(client: WkClient, sr: SatrushAccounts, opts: {
   payer: Addr; config: Addr;
@@ -425,6 +437,8 @@ export function readManagers(client: WkClient, authority: Addr): Promise<Array<{
 }>>;
 export function readDeployer(client: WkClient, deployerPda: Addr): Promise<DeployerState | null>;
 export function readAtaBalances(client: WkClient, atas: Addr[]): Promise<bigint[]>;
+/** Lamports per sub-miner (absent = 0n); null when any chunk fails or comes back short. */
+export function readSubMinerLamports(client: WkClient, wkAuths: Addr[]): Promise<bigint[] | null>;
 export function readClaimable(client: WkClient, shards: ShardAccounts[]): Promise<{
   unclaimedUsd: bigint; lockedHashrate: bigint; btcShares: bigint; tokenShares: bigint;
   withMiner: Array<ShardAccounts & { minerState: MinerState }>;
@@ -454,3 +468,18 @@ export function sendWithSigners(client: WkClient, args: {
   feePayerSigner: unknown; instructions: WkInstruction[];
   computeUnitLimit?: number; priorityFee?: number | bigint;
 }): Promise<string>;
+
+/** `sweep_sub_miner_sol(auth_ids, finish)`: the one-time sub-miner SOL sweep; `finish` on the last batch only. */
+export function ixSweepSubMinerSol(client: WkClient, sr: SatrushAccounts, opts: {
+  crank: Addr; config: Addr; finish?: boolean;
+}, subMiners: Array<{ manager: Addr; wkAuth: Addr; usdAta: Addr; miner: Addr; authId: number | bigint }>): WkInstruction;
+
+// ---------------------------------------------------------------- a sub-miner's SOL
+export const RENT_SYSVAR: string;
+export interface Rent { lamportsPerByteYear: bigint; exemptionThreshold: number; burnPercent: number }
+export function decodeRent(data: Uint8Array): Rent;
+export function rentExemptLamports(rent: Rent, bytes: number | bigint): bigint;
+export function readRent(client: WkClient): Promise<{ rent: Rent; slot: bigint }>;
+export function planWithdrawal(args: { rent: Rent; balance: bigint; keep: bigint }): {
+  amount: bigint; remaining: bigint; adjusted: boolean; dustFloor: bigint;
+};

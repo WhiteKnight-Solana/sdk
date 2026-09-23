@@ -279,3 +279,26 @@ export async function programIsLive(client) {
     .send();
   return Boolean(res.value?.executable);
 }
+
+/**
+ * The SOL each sub-miner holds, in lamports, one `getMultipleAccounts` per 100 addresses. An
+ * absent account holds 0. A failed or short read returns null, never zeros: a caller sizing a
+ * deposit or a withdrawal on a partial read would act on sub-miners it never saw.
+ */
+export async function readSubMinerLamports(client, wkAuths) {
+  const out = [];
+  for (let i = 0; i < wkAuths.length; i += 100) {
+    const chunk = wkAuths.slice(i, i + 100);
+    let res;
+    try {
+      res = await client.rpc
+        .getMultipleAccounts(chunk, { encoding: 'base64', dataSlice: { offset: 0, length: 0 } })
+        .send();
+    } catch {
+      return null;
+    }
+    if (!Array.isArray(res?.value) || res.value.length !== chunk.length) return null;
+    for (const v of res.value) out.push(v ? BigInt(v.lamports) : 0n);
+  }
+  return out;
+}

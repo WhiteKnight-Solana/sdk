@@ -162,13 +162,44 @@ function withdrawIx(client, name, a, { authId, amount }) {
 }
 
 /**
- * `close_shard(auth_id)` — hand back the rent of an emptied shard's accounts.
+ * `withdraw_sol(auth_id, amount)`: a sub-miner's SOL back to the position's owner. `amount: 0`
+ * withdraws everything; what stays must be 0 or at least the rent-exempt minimum
+ * (`planWithdrawal` sizes it). Refused with SolWithdrawalsLocked until the one-time sub-miner
+ * SOL sweep has finished (`readConfig(...).solWithdrawOpen()`). Deposits need no instruction:
+ * a plain System transfer to the sub-miner's `wkAuth`.
+ */
+export function ixWithdrawSol(client, a, { authId, amount = 0n }) {
+  return buildIx(
+    client.idl,
+    'withdraw_sol',
+    {
+      authority: a.authority,
+      config: a.config,
+      manager: a.manager,
+      wk_auth: a.wkAuth,
+      system_program: SYSTEM_PROGRAM,
+    },
+    { auth_id: BigInt(authId), amount: BigInt(amount) },
+  );
+}
+
+/**
+ * `close_shard(auth_id)`: hand back the rent of an emptied sub-miner's token accounts (USDC,
+ * cbBTC and, when one exists, RUSH). Its own SOL stays; `ixWithdrawSol` returns it.
  *
  * User-signed, unlike the claims: it destroys accounts, so it is the owner's call and no
- * operator can do it for you. The program refuses while the shard still holds anything —
- * tokens, unclaimed winnings, sats shares or hashrate.
+ * operator can do it for you. The program refuses while the sub-miner still holds anything:
+ * USDC, cbBTC, RUSH, unclaimed winnings, sats shares or hashrate. `shard` is `deriveShard`
+ * output (it carries `rushAta`); `sr` is `resolveSatrushAccounts()` (the program checks the
+ * RUSH mint against Sat Rush's config).
  */
-export function ixCloseShard(client, a, shard) {
+export function ixCloseShard(client, a, shard, sr) {
+  if (!shard.rushAta || !sr?.satrushConfig || !sr?.rushMint) {
+    throw new Error(
+      'ixCloseShard needs shard.rushAta (deriveShard) and sr.satrushConfig and sr.rushMint ' +
+        '(resolveSatrushAccounts): close_shard checks the sub-miner\'s RUSH account too',
+    );
+  }
   return buildIx(
     client.idl,
     'close_shard',
@@ -184,6 +215,9 @@ export function ixCloseShard(client, a, shard) {
       miner: shard.miner,
       token_program: TOKEN_PROGRAM,
       system_program: SYSTEM_PROGRAM,
+      satrush_config: sr.satrushConfig,
+      token_mint: sr.rushMint,
+      wk_auth_token_ata: { address: shard.rushAta, role: ROLE.WRITABLE },
     },
     { auth_id: BigInt(shard.authId) },
   );
@@ -201,8 +235,14 @@ export function ixCloseShard(client, a, shard) {
  * before it reads anything, so a layout one short fails the whole batch for everyone in it
  * with BadRemainingAccounts (6021) — which is exactly what the crank shipped from the v2
  * upgrade on 2026-09-12 until 2026-09-18, settling nobody for six days.
+ *
+ * 21 named accounts: Sat Rush v2's settle_deploy_public also takes the RUSH mint and the
+ * Board's and the TokenVault's RUSH ATAs, which the program pins to Sat Rush's config.
  */
 export function ixSettleBatch(client, sr, { payer, config, round, rentRecipient, roundId }, entries) {
+  if (!sr.boardRushAta || !sr.tokenVaultRushAta || !sr.rushMint) {
+    throw new Error('ixSettleBatch needs sr.boardRushAta, sr.tokenVaultRushAta and sr.rushMint (resolveSatrushAccounts)');
+  }
   const extra = entries.flatMap((s) => [
     readonly(s.manager),
     writable(s.wkAuth),
@@ -234,6 +274,9 @@ export function ixSettleBatch(client, sr, { payer, config, round, rentRecipient,
       token_program: TOKEN_PROGRAM,
       associated_token_program: ATA_PROGRAM,
       system_program: SYSTEM_PROGRAM,
+      token_mint: sr.rushMint,
+      board_token_ata: { address: sr.boardRushAta, role: ROLE.WRITABLE },
+      token_vault_token_ata: { address: sr.tokenVaultRushAta, role: ROLE.WRITABLE },
     },
     { round_id: roundId, auth_ids: entries.map((s) => BigInt(s.authId)) },
     extra,
@@ -591,6 +634,37 @@ export function ixBuyOneBtcTicketsBatch(client, sr, { operator, config, iteratio
       system_program: SYSTEM_PROGRAM,
     },
     { items: shards.map((s) => ({ auth_id: BigInt(s.authId), tickets: BigInt(s.tickets) })) },
+    extra,
+  );
+}
+
+/**
+ * `sweep_sub_miner_sol(auth_ids, finish)`: the one-time sub-miner SOL sweep. Signed only by the
+ * crank key the config names (`config.deploy_authority`), which is also where every swept
+ * lamport goes. The program sweeps each listed sub-miner that is idle and under the USDC limit
+ * (params 17 and 18) and keeps the rest. `finish: true` belongs on the LAST batch only: it ends
+ * the sweep for good and opens `withdraw_sol` for every owner. Six sub-miners fit one legacy
+ * transaction without a lookup table.
+ *
+ * Sub-miners: `{ manager, wkAuth, usdAta, miner, authId }`, in the order the ABI publishes.
+ */
+export function ixSweepSubMinerSol(client, sr, { crank, config, finish = false }, subMiners) {
+  const extra = subMiners.flatMap((s) => [
+    readonly(s.manager),
+    writable(s.wkAuth),
+    readonly(s.usdAta),
+    readonly(s.miner),
+  ]);
+  return buildIx(
+    client.idl,
+    'sweep_sub_miner_sol',
+    {
+      crank: signer(crank),
+      config: { address: config, role: ROLE.WRITABLE },
+      board: sr.board,
+      system_program: SYSTEM_PROGRAM,
+    },
+    { auth_ids: subMiners.map((s) => BigInt(s.authId)), finish },
     extra,
   );
 }

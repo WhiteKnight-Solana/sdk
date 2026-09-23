@@ -11,7 +11,7 @@
 
 import { Reader } from './borsh.js';
 import {
-  WK_CONFIG_LEN, MANAGER_LEN, DEPLOYER_LEN, PARAM_COUNT, FLAG, USER_FLAG, SIZES,
+  WK_CONFIG_LEN, MANAGER_LEN, DEPLOYER_LEN, PARAM_COUNT, PARAM, FLAG, USER_FLAG, SIZES,
   ROUND_STATE, EPOCH_STATE, ONE_BTC_STATE, TILE_COUNT,
 } from './constants.js';
 
@@ -34,7 +34,13 @@ export function decodeWkConfig(d) {
   };
   c.params = r.array(PARAM_COUNT, (rr) => rr.u64());
   c.bump = r.u8();
+  // Byte 497, carved from the reserve: 1 once the one-time sub-miner SOL sweep has finished.
+  c.solSweepDone = r.u8();
   c.param = (i) => c.params[i] ?? 0n;
+  c.sweepMaxUsdcMicros = c.param(PARAM.SWEEP_MAX_USDC_MICROS);
+  c.sweepIdleRounds = c.param(PARAM.SWEEP_IDLE_ROUNDS);
+  /** `withdraw_sol` is open for every owner once the sweep has finished; shut before. */
+  c.solWithdrawOpen = () => c.solSweepDone === 1;
   c.hasFlag = (f) => (c.flags & f) !== 0n;
   c.deployAllowed = () => !c.hasFlag(FLAG.PAUSED_ALL) && !c.hasFlag(FLAG.PAUSED_DEPLOY);
   return c;

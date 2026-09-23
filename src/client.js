@@ -93,6 +93,7 @@ export async function resolveSatrushAccounts(
     board,
     boardUsdAta: await ataFor(board, usdMint),
     boardBtcAta: await ataFor(board, btcMint),
+    boardRushAta: await ataFor(board, rushMint),
     satsVault,
     satsVaultBtcAta: await ataFor(satsVault, btcMint),
     tokenVault,

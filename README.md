@@ -80,9 +80,10 @@ if (owed.tokenShares > 0n) {
 
 | Who signs | Builders |
 | --- | --- |
-| **User** (position owner) | `ixCreateManager` `ixCreateDeployer` `ixUpdateDeployer` `ixTransferManager` `ixDepositBalance` `ixWithdrawBalance` `ixWithdrawTokens` `ixCloseShard` |
+| **User** (position owner) | `ixCreateManager` `ixCreateDeployer` `ixUpdateDeployer` `ixTransferManager` `ixDepositBalance` `ixWithdrawBalance` `ixWithdrawTokens` `ixWithdrawSol` `ixCloseShard` |
 | **Anyone** (permissionless, value flows to users) | `ixSettleBatch` `ixClaimUsdBatch` `ixClaimSatsBatch` `ixClaimTokenBatch` `ixClaimEpochRewardsBatch` `ixClaimOneBtcRewardsBatch` `ixCloseOneBtcTicketsBatch` |
 | **Operator** (per-user `deploy_authority`) | `ixDeployBatch` `ixBuyEpochTicketsBatch` `ixBuyOneBtcTicketsBatch` |
+| **The config's own operator, once** (`config.deploy_authority`) | `ixSweepSubMinerSol`: the one-time sub-miner SOL sweep |
 
 Admin instructions are deliberately not wrapped; `test/surface.test.mjs` pins the partition so
 a new program instruction must be consciously placed.

@@ -41,11 +41,19 @@ test('WkConfig round-trips with flags and params intact', () => {
   w.u64(FLAG.SETTLE_RENT_TO_US | FLAG.ALLOW_NEW_MANAGERS);
   for (let i = 0; i < PARAM_COUNT; i++) w.u64(1000 + i);
   w.u8(254);
-  w.raw(new Uint8Array(256)); // launch reserve
+  w.u8(1); // sol_sweep_done, byte 497
+  w.raw(new Uint8Array(255)); // what is left of the launch reserve
   const bytes = w.finish();
   assert.equal(bytes.length, WK_CONFIG_LEN);
 
   const c = decodeWkConfig(bytes);
+  assert.equal(c.solSweepDone, 1);
+  assert.ok(c.solWithdrawOpen());
+  assert.equal(c.sweepMaxUsdcMicros, 1017n, 'param 17');
+  assert.equal(c.sweepIdleRounds, 1018n, 'param 18');
+  const shut = Uint8Array.from(bytes);
+  shut[497] = 0;
+  assert.equal(decodeWkConfig(shut).solWithdrawOpen(), false, 'a zero byte keeps withdrawals shut');
   assert.equal(c.admin, String(PK[0]));
   assert.equal(c.btcMint, String(PK[6]));
   assert.equal(c.params[13], 1013n);

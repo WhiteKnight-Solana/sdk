@@ -13,7 +13,8 @@ import { idl as rawIdl, constants as abiConstants } from '@whiteknight-solana/ab
 import {
   indexIdl, ROLE,
   ixCreateManager, ixCreateDeployer, ixUpdateDeployer, ixTransferManager, ixSetUserFlags,
-  ixDepositBalance, ixWithdrawBalance, ixWithdrawTokens, ixCloseShard,
+  ixDepositBalance, ixWithdrawBalance, ixWithdrawTokens, ixWithdrawSol, ixCloseShard,
+  ixSweepSubMinerSol,
   ixSettleBatch, ixClaimUsdBatch, ixClaimSatsBatch, ixClaimTokenBatch,
   ixClaimEpochRewardsBatch, ixClaimOneBtcRewardsBatch, ixCloseOneBtcTicketsBatch,
   ixDeployBatch, ixBuyEpochTicketsBatch, ixBuyOneBtcTicketsBatch,
@@ -82,7 +83,13 @@ const sr = {
   oneBtcVault: K[0], oneBtcVaultBtcAta: K[1],
   eventAuthority: K[2], usdMint: USDC_MINT, btcMint: CBBTC_MINT, rushMint: RUSH_MINT,
   satrushProgram: SATRUSH_PROGRAM,
+  // Distinct from every other key here, so an encoder that put the TokenVault's RUSH ATA (or
+  // nothing) where the Board's belongs cannot pass by coincidence.
+  boardRushAta: 'SysvarS1otHashes111111111111111111111111111',
 };
+
+/** The index of a named account in the IDL's wire order. */
+const idlIndex = (ix, name) => rawIdl.instructions.find((i) => i.name === ix).accounts.findIndex((a) => a.name === name);
 
 const idlAccountCount = (name) => rawIdl.instructions.find((i) => i.name === name).accounts.length;
 
@@ -153,12 +160,37 @@ test('both withdraw verbs share a payload shape and amount 0 means sweep', () =>
   verify(t, 'withdraw_tokens', { args: new Array(16).fill(0) });
 });
 
-test('close_shard carries the shard auth_id', () => {
+test('close_shard carries the shard auth_id and the RUSH leg the program checks', () => {
   const s = shard(3);
-  const ix = ixCloseShard(client, {
-    authority: K[0], config: K[1], manager: K[2], usdMint: USDC_MINT, btcMint: CBBTC_MINT,
-  }, s);
+  const a = { authority: K[0], config: K[1], manager: K[2], usdMint: USDC_MINT, btcMint: CBBTC_MINT };
+  const ix = ixCloseShard(client, a, s, sr);
   verify(ix, 'close_shard', { args: [3, 0, 0, 0, 0, 0, 0, 0] });
+  for (const [name, address, role] of [
+    ['satrush_config', sr.satrushConfig, ROLE.READONLY],
+    ['token_mint', sr.rushMint, ROLE.READONLY],
+    ['wk_auth_token_ata', s.rushAta, ROLE.WRITABLE],
+  ]) {
+    const m = ix.accounts[idlIndex('close_shard', name)];
+    assert.equal(String(m.address), String(address), `${name} address`);
+    assert.equal(m.role, role, `${name} role`);
+  }
+  assert.throws(() => ixCloseShard(client, a, s), /resolveSatrushAccounts/, 'sr is required');
+  assert.throws(() => ixCloseShard(client, a, { ...s, rushAta: undefined }, sr), /rushAta/);
+});
+
+test('withdraw_sol: auth_id then amount as u64s, owner-signed, no Deployer', () => {
+  const a = { authority: K[0], config: K[1], manager: K[2], wkAuth: K[3] };
+  const all = ixWithdrawSol(client, a, { authId: 2 });
+  verify(all, 'withdraw_sol', { args: [2, 0, 0, 0, 0, 0, 0, 0, ...new Array(8).fill(0)] });
+  const some = ixWithdrawSol(client, a, { authId: 1, amount: 20_000_000n });
+  verify(some, 'withdraw_sol', { args: [1, 0, 0, 0, 0, 0, 0, 0, 0x00, 0x2d, 0x31, 0x01, 0, 0, 0, 0] });
+  assert.deepEqual(some.accounts.map((m) => [String(m.address), m.role]), [
+    [String(K[0]), ROLE.WRITABLE_SIGNER],
+    [String(K[1]), ROLE.READONLY],
+    [String(K[2]), ROLE.READONLY],
+    [String(K[3]), ROLE.WRITABLE],
+    [String(SYSTEM_PROGRAM), ROLE.READONLY],
+  ]);
 });
 
 // ---------------------------------------------------------------- permissionless batches
@@ -326,6 +358,48 @@ test('settle batch: 7 extras per entry in the program walk order', () => {
   const names = rawIdl.instructions.find((i) => i.name === 'wk_settle_batch').accounts;
   const satrushProgramIndex = names.findIndex((a) => a.name === 'satrush_program');
   assert.equal(ix.accounts[satrushProgramIndex].role, ROLE.WRITABLE);
+  // The RUSH leg, by address AND role: an undefined address encodes without complaint, so a
+  // count-only check would pass an encoder that dropped one.
+  assert.equal(base, 21, 'settle takes 21 named accounts');
+  for (const [name, address, role] of [
+    ['token_mint', sr.rushMint, ROLE.READONLY],
+    ['board_token_ata', sr.boardRushAta, ROLE.WRITABLE],
+    ['token_vault_token_ata', sr.tokenVaultRushAta, ROLE.WRITABLE],
+  ]) {
+    const m = ix.accounts[idlIndex('wk_settle_batch', name)];
+    assert.equal(String(m.address), String(address), `${name} address`);
+    assert.equal(m.role, role, `${name} role`);
+  }
+  assert.throws(
+    () => ixSettleBatch(client, { ...sr, boardRushAta: undefined }, { payer: K[0], config: K[1], round: K[2], rentRecipient: K[3], roundId: 1 }, entries),
+    /boardRushAta/,
+  );
+});
+
+test('sweep_sub_miner_sol: auth_ids vec then finish, 4 extras per sub-miner in the published order', () => {
+  const subs = [shard(0), shard(1)];
+  const ix = ixSweepSubMinerSol(client, sr, { crank: K[0], config: K[1], finish: true }, subs);
+  verify(ix, 'sweep_sub_miner_sol', {
+    extraPerShard: 4,
+    shardCount: 2,
+    // u32 length 2, then the two u64 auth ids, then finish = 1.
+    args: [2, 0, 0, 0, ...[0, 0, 0, 0, 0, 0, 0, 0], ...[1, 0, 0, 0, 0, 0, 0, 0], 1],
+  });
+  assert.deepEqual(ix.accounts.slice(0, 4).map((m) => [String(m.address), m.role]), [
+    [String(K[0]), ROLE.WRITABLE_SIGNER],
+    [String(K[1]), ROLE.WRITABLE],
+    [String(sr.board), ROLE.READONLY],
+    [String(SYSTEM_PROGRAM), ROLE.READONLY],
+  ]);
+  const order = abiConstants.whiteknight.remainingAccounts.sweep_sub_miner_sol.order;
+  const key = { manager: 'manager', wk_auth: 'wkAuth', wk_auth_usd_ata: 'usdAta', miner: 'miner' };
+  const roles = { manager: ROLE.READONLY, wk_auth: ROLE.WRITABLE, wk_auth_usd_ata: ROLE.READONLY, miner: ROLE.READONLY };
+  assert.deepEqual(
+    ix.accounts.slice(4).map((m) => [String(m.address), m.role]),
+    subs.flatMap((s) => order.map((n) => [String(s[key[n]]), roles[n]])),
+  );
+  const open = ixSweepSubMinerSol(client, sr, { crank: K[0], config: K[1] }, []);
+  verify(open, 'sweep_sub_miner_sol', { args: [0, 0, 0, 0, 0], shardCount: 0 });
 });
 
 // ---------------------------------------------------------------- operator batches
@@ -446,4 +520,35 @@ test('numbers are accepted where bigints are meant — a client bug should not s
   const dv = new DataView(ix.data.buffer, ix.data.byteOffset);
   assert.equal(dv.getBigUint64(8, true), 3n);
   assert.equal(dv.getBigUint64(16, true), 2n);
+});
+
+test('the onboarding bytes the program executes are exactly what this sdk encodes', async () => {
+  // abi vendors them from the program repo, where test_satstacker_onboarding.rs executes them
+  // against the real program: create_manager, create_deployer at $10/round with the form's
+  // defaults, and one $5,000 deposit. The struct is spelled out, so a changed encoder fails here.
+  const { readFileSync } = await import('node:fs');
+  const { createRequire } = await import('node:module');
+  const { dirname, join } = await import('node:path');
+  const abiRoot = dirname(createRequire(import.meta.url).resolve('@whiteknight-solana/abi'));
+  const fx = JSON.parse(readFileSync(join(abiRoot, 'fixtures', 'satstacker-onboard.json'), 'utf8'));
+  const OPERATOR = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+  const hex = (ix) => Buffer.from(ix.data).toString('hex');
+  const K0 = OPERATOR; // data bytes do not depend on account addresses
+  const struct = {
+    deploy_authority: OPERATOR, bps_fee: 200n, flat_fee: 0n, expected_bps_fee: 200n,
+    expected_flat_fee: 1n, per_round_amount: 10_000_000n, shard_count: 1, max_shards: 1,
+    tile_count: 21, run_rounds: 0, when_funds_low: 0, max_per_tile: 0n, min_bet: 1_000_000n,
+    stop_level: 0n, auto_reload: true, min_strike_pot_usd: 0n, max_strike_pot_usd: 0n,
+    btc_share_bps: 0,
+  };
+  assert.equal(hex(ixCreateManager(client, { authority: K0, config: K0, manager: K0, index: 0 })), fx.create_manager);
+  assert.equal(
+    hex(ixCreateDeployer(client, { authority: K0, config: K0, manager: K0, deployer: K0, settings: struct })),
+    fx.create_deployer,
+  );
+  const a = { authority: K0, config: K0, manager: K0, deployer: K0, wkAuth: K0, usdMint: K0, authorityUsdAta: K0, wkAuthUsdAta: K0 };
+  assert.deepEqual(
+    fx.deposits,
+    [hex(ixDepositBalance(client, a, { authId: 0, amount: BigInt(fx.per_shard_deposit) }))],
+  );
 });

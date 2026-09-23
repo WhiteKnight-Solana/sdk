@@ -16,4 +16,5 @@ export * from './src/math.js';
 export { createClient, derivePosition, deriveShard, resolveSatrushAccounts } from './src/client.js';
 export * from './src/instructions.js';
 export * from './src/read.js';
+export { RENT_SYSVAR, decodeRent, rentExemptLamports, readRent, planWithdrawal } from './src/funding.js';
 export { ixComputeUnitLimit, ixComputeUnitPrice, compileForWallet, sendWithSigners } from './src/send.js';
