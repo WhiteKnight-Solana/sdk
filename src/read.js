@@ -282,11 +282,6 @@ export async function programIsLive(client) {
 }
 
 /**
- * The SOL each sub-miner holds, in lamports, one `getMultipleAccounts` per 100 addresses. An
- * absent account holds 0. A failed or short read returns null, never zeros: a caller sizing a
- * deposit or a withdrawal on a partial read would act on sub-miners it never saw.
- */
-/**
  * The fee bucket: its settings, running totals and the USDC it holds, in one call. Null when the
  * bucket or its USDC account cannot be read (including before `init_fee_bucket`), never zeros: a
  * dashboard that shows 0 for "unread" tells its reader the money is gone.
@@ -316,6 +311,11 @@ export async function readFeeBucket(client, usdMint = USDC_MINT) {
   return { address: bucket, bucketUsdAta, balance, ...state };
 }
 
+/**
+ * The SOL each sub-miner holds, in lamports, one `getMultipleAccounts` per 100 addresses. An
+ * absent account holds 0. A failed or short read returns null, never zeros: a caller sizing a
+ * deposit or a withdrawal on a partial read would act on sub-miners it never saw.
+ */
 export async function readSubMinerLamports(client, wkAuths) {
   const out = [];
   for (let i = 0; i < wkAuths.length; i += 100) {

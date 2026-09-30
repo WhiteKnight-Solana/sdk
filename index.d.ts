@@ -193,9 +193,9 @@ export interface FeeBucketState {
   /** Summing to exactly 10,000. */
   splitBps: number[];
   expenseWallet: Address;
-  /** Running total paid to each slot, in USDC micros. */
+  /** Running total paid through each slot since the bucket was created, in USDC micros, to whoever held the slot at the time. */
   distributed: bigint[];
-  /** Running total paid to the expenses wallet, in USDC micros. */
+  /** Running total of expenses paid since the bucket was created, in USDC micros, to every expenses wallet it has had. */
   expenses: bigint;
   bump: number;
 }
