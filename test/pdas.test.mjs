@@ -55,6 +55,7 @@ test('whiteknight PDAs match their published recipes', async () => {
     await wkPdas.auth(WK, MGR, 7n),
     await fromRecipe(WK, r.auth, { manager: MGR, authId: 7n }),
   );
+  assert.equal(await wkPdas.feeBucket(WK), await fromRecipe(WK, r.feeBucket));
 });
 
 test('satrush PDAs match their published recipes', async () => {
@@ -86,7 +87,7 @@ test('every published recipe is exercised above — none forgotten', () => {
   // The two lists in this file must cover every recipe the ABI publishes, or a new recipe
   // could ship unverified. Counting is enough: names are checked by the derivations passing.
   const count = (seeds) => Object.keys(seeds).filter((k) => !k.startsWith('_')).length;
-  assert.equal(count(constants.whiteknight.seeds), 4);
+  assert.equal(count(constants.whiteknight.seeds), 5);
   assert.equal(count(constants.satrush.seeds), 16);
 });
 

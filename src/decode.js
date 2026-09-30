@@ -11,7 +11,7 @@
 
 import { Reader } from './borsh.js';
 import {
-  WK_CONFIG_LEN, MANAGER_LEN, DEPLOYER_LEN, PARAM_COUNT, PARAM, FLAG, USER_FLAG, SIZES,
+  WK_CONFIG_LEN, MANAGER_LEN, DEPLOYER_LEN, FEE_BUCKET_LEN, PARAM_COUNT, PARAM, FLAG, USER_FLAG, SIZES,
   ROUND_STATE, EPOCH_STATE, ONE_BTC_STATE, TILE_COUNT,
 } from './constants.js';
 
@@ -144,6 +144,26 @@ export function areVaultBuysHeld(deployer) {
  */
 export function areSatsHeld(deployer) {
   return (deployer.userFlags & USER_FLAG.HOLD_SATS) !== 0n;
+}
+
+/**
+ * The fee bucket's settings and running totals. The money itself sits in the USDC account this
+ * PDA owns (readFeeBucket reads both), and only the admin's `pay_fee_expense` and
+ * `distribute_fees` move it. The same wallet may fill several recipient slots.
+ */
+export function decodeFeeBucket(d) {
+  if (d.length !== FEE_BUCKET_LEN) {
+    throw new Error(`wk: FeeBucket is ${d.length} bytes, expected ${FEE_BUCKET_LEN}; this SDK build may be stale`);
+  }
+  const r = new Reader(d).seek(8);
+  return {
+    recipients: r.array(3, (rr) => rr.pubkey()),
+    splitBps: r.array(3, (rr) => rr.u16()),
+    expenseWallet: r.pubkey(),
+    distributed: r.array(3, (rr) => rr.u64()),
+    expenses: r.u64(),
+    bump: r.u8(),
+  };
 }
 
 // ---------------------------------------------------------------- satrush

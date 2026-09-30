@@ -29,6 +29,6 @@
   },
   "dependencies": {
     "@solana/kit": "7.0.0",
-    "@whiteknight-solana/abi": "github:WhiteKnight-Solana/abi#5bcd299e546c8fcd4071145360fefbd8320734a5"
+    "@whiteknight-solana/abi": "github:WhiteKnight-Solana/abi#964378247d49196fdee041bf47aee4ac000cf41a"
   }
 }

@@ -86,7 +86,11 @@ if (owed.tokenShares > 0n) {
 | **The config's own operator, once** (`config.deploy_authority`) | `ixSweepSubMinerSol`: the one-time sub-miner SOL sweep |
 
 Admin instructions are deliberately not wrapped; `test/surface.test.mjs` pins the partition so
-a new program instruction must be consciously placed.
+a new program instruction must be consciously placed. That includes the fee bucket's four
+(`init_fee_bucket`, `set_fee_split`, `pay_fee_expense`, `distribute_fees`): the operator's
+tooling builds them from the IDL. The SDK only reads the bucket: `readFeeBucket(client)` returns
+its settings, running totals and the USDC it holds, or null when any of it cannot be read,
+never zeros.
 
 Two withdraw verbs cover three tokens: `ixWithdrawBalance` sweeps USDC, while
 `ixWithdrawTokens` sweeps any mint — cbBTC winnings or Sat Rush v2 RUSH. `amount: 0n` means

@@ -31,6 +31,8 @@ export const wkPdas = {
   /** The shard PDA that owns the position's token accounts and signs Sat Rush CPIs. */
   auth: (program, manager, authId) =>
     pda(program, [seed('wk-auth'), addrBytes(manager), u64le(authId)]),
+  /** One per program. The bucket itself is the USDC account this PDA owns. */
+  feeBucket: (program) => pda(program, [seed('fee-bucket')]),
 };
 
 /** Sat Rush PDAs. */

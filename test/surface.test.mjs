@@ -47,6 +47,12 @@ const ADMIN_EXCLUDED = [
   'set_flags',
   'transfer_admin',
   'accept_admin',
+  // The fee bucket: admin-only, built from the IDL by the operator's tooling (the crank's
+  // `fees` commands, and later a Squads vault transaction), never by this client.
+  'init_fee_bucket',
+  'set_fee_split',
+  'pay_fee_expense',
+  'distribute_fees',
 ];
 
 test('every IDL instruction is either covered or explicitly admin-excluded', () => {
@@ -63,7 +69,10 @@ test('every covered instruction has its builder exported', () => {
 
 test('no admin instruction has a builder that snuck in', () => {
   const names = Object.keys(sdk).map((n) => n.toLowerCase());
-  for (const admin of ['setparam', 'setkey', 'setflags', 'initconfig', 'transferadmin', 'acceptadmin']) {
+  for (const admin of [
+    'setparam', 'setkey', 'setflags', 'initconfig', 'transferadmin', 'acceptadmin',
+    'initfeebucket', 'setfeesplit', 'payfeeexpense', 'distributefees',
+  ]) {
     assert.ok(!names.some((n) => n.includes(admin)), `admin builder for ${admin} found in exports`);
   }
 });

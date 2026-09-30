@@ -6,9 +6,10 @@
 import { getAddressDecoder } from '@solana/kit';
 import {
   decodeWkConfig, decodeManager, decodeDeployer, decodeSatsVault, decodeTokenVault, decodeMiner,
+  decodeFeeBucket,
 } from './decode.js';
-import { wkPdas, satrushPdas } from './pdas.js';
-import { MANAGER_LEN, SIZES, SATRUSH_PROGRAM } from './constants.js';
+import { wkPdas, satrushPdas, ataFor } from './pdas.js';
+import { MANAGER_LEN, SIZES, SATRUSH_PROGRAM, USDC_MINT } from './constants.js';
 
 const b64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
@@ -285,6 +286,36 @@ export async function programIsLive(client) {
  * absent account holds 0. A failed or short read returns null, never zeros: a caller sizing a
  * deposit or a withdrawal on a partial read would act on sub-miners it never saw.
  */
+/**
+ * The fee bucket: its settings, running totals and the USDC it holds, in one call. Null when the
+ * bucket or its USDC account cannot be read (including before `init_fee_bucket`), never zeros: a
+ * dashboard that shows 0 for "unread" tells its reader the money is gone.
+ */
+export async function readFeeBucket(client, usdMint = USDC_MINT) {
+  const bucket = await wkPdas.feeBucket(client.programAddress);
+  const bucketUsdAta = await ataFor(bucket, usdMint);
+  let res;
+  try {
+    res = await client.rpc.getMultipleAccounts([bucket, bucketUsdAta], { encoding: 'base64' }).send();
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(res?.value) || res.value.length !== 2) return null;
+  const [b, ata] = res.value;
+  if (!b || !ata) return null;
+  const a = b64(ata.data[0]);
+  if (a.length < 72) return null;
+  let state;
+  try {
+    state = decodeFeeBucket(b64(b.data[0]));
+  } catch {
+    return null;
+  }
+  // SPL token account: mint[32] owner[32] amount u64 LE @64
+  const balance = new DataView(a.buffer, a.byteOffset, a.byteLength).getBigUint64(64, true);
+  return { address: bucket, bucketUsdAta, balance, ...state };
+}
+
 export async function readSubMinerLamports(client, wkAuths) {
   const out = [];
   for (let i = 0; i < wkAuths.length; i += 100) {

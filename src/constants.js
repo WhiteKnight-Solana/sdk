@@ -24,6 +24,7 @@ export const LOOKUP_TABLE_PROGRAM = address(mainnet.addressLookupTableProgram);
 export const WK_CONFIG_LEN = abi.whiteknight.accountLens.WkConfig;
 export const MANAGER_LEN = abi.whiteknight.accountLens.Manager;
 export const DEPLOYER_LEN = abi.whiteknight.accountLens.Deployer;
+export const FEE_BUCKET_LEN = abi.whiteknight.accountLens.FeeBucket;
 
 /** Byte offset of `Deployer.deploy_authority`, for memcmp filters. */
 export const DEPLOY_AUTHORITY_OFFSET = abi.whiteknight.deployAuthorityOffset;

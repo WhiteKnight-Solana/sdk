@@ -33,6 +33,7 @@ export const LOOKUP_TABLE_PROGRAM: Address;
 export const WK_CONFIG_LEN: number;
 export const MANAGER_LEN: number;
 export const DEPLOYER_LEN: number;
+export const FEE_BUCKET_LEN: number;
 export const DEPLOY_AUTHORITY_OFFSET: number;
 export const PARAM_COUNT: number;
 export const PARAM: Readonly<Record<string, number>>;
@@ -124,6 +125,7 @@ export const wkPdas: {
   manager(program: Addr, authority: Addr, index?: number): Promise<Address>;
   deployer(program: Addr, manager: Addr): Promise<Address>;
   auth(program: Addr, manager: Addr, authId: number | bigint): Promise<Address>;
+  feeBucket(program: Addr): Promise<Address>;
 };
 export const satrushPdas: {
   config(p?: Addr): Promise<Address>;
@@ -185,6 +187,19 @@ export interface MinerState {
 export function decodeWkConfig(d: Uint8Array): WkConfigState;
 export function decodeManager(d: Uint8Array): ManagerState;
 export function decodeDeployer(d: Uint8Array): DeployerState;
+export interface FeeBucketState {
+  /** Three slots; the same wallet may fill several. */
+  recipients: Address[];
+  /** Summing to exactly 10,000. */
+  splitBps: number[];
+  expenseWallet: Address;
+  /** Running total paid to each slot, in USDC micros. */
+  distributed: bigint[];
+  /** Running total paid to the expenses wallet, in USDC micros. */
+  expenses: bigint;
+  bump: number;
+}
+export function decodeFeeBucket(d: Uint8Array): FeeBucketState;
 /** Has the owner paused this position's mining? */
 export function isMiningPaused(deployer: DeployerState): boolean;
 /**
@@ -437,6 +452,10 @@ export function readManagers(client: WkClient, authority: Addr): Promise<Array<{
 }>>;
 export function readDeployer(client: WkClient, deployerPda: Addr): Promise<DeployerState | null>;
 export function readAtaBalances(client: WkClient, atas: Addr[]): Promise<bigint[]>;
+/** The fee bucket and the USDC it holds; null when anything cannot be read, never zeros. */
+export function readFeeBucket(client: WkClient, usdMint?: Addr): Promise<
+  (FeeBucketState & { address: Address; bucketUsdAta: Address; balance: bigint }) | null
+>;
 /** Lamports per sub-miner (absent = 0n); null when any chunk fails or comes back short. */
 export function readSubMinerLamports(client: WkClient, wkAuths: Addr[]): Promise<bigint[] | null>;
 export function readClaimable(client: WkClient, shards: ShardAccounts[]): Promise<{
