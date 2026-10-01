@@ -189,9 +189,10 @@ export function ixWithdrawSol(client, a, { authId, amount = 0n }) {
  *
  * User-signed, unlike the claims: it destroys accounts, so it is the owner's call and no
  * operator can do it for you. The program refuses while the sub-miner still holds anything:
- * USDC, cbBTC, RUSH, unclaimed winnings, sats shares or hashrate. `shard` is `deriveShard`
- * output (it carries `rushAta`); `sr` is `resolveSatrushAccounts()` (the program checks the
- * RUSH mint against Sat Rush's config).
+ * USDC, cbBTC, RUSH, unclaimed winnings, sats shares or RUSH shares. Leftover hashrate does
+ * not count since the fee-bucket release: it is not money, and it stays on the Sat Rush Miner.
+ * `shard` is `deriveShard` output (it carries `rushAta`); `sr` is `resolveSatrushAccounts()`
+ * (the program checks the RUSH mint against Sat Rush's config).
  */
 export function ixCloseShard(client, a, shard, sr) {
   if (!shard.rushAta || !sr?.satrushConfig || !sr?.rushMint) {
